@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from collections.abc import Iterable, Sequence
 
@@ -52,9 +53,18 @@ class QueryAgentNodes:
 
     def search_graph(self, state: QueryAgentState) -> dict[str, object]:
         graph = self.graph_store.load_graph()
+        search_terms = _dedupe_search_terms(state.get("search_terms") or [state["query"]])
+        query_embeddings = self.llm.embed(
+            role="graph_query_embedding",
+            texts=search_terms,
+        ).embeddings
         result = search_graph(
             graph,
-            search_terms=state.get("search_terms") or [state["query"]],
+            search_terms=search_terms,
+            query_embeddings=query_embeddings,
+            graph_embeddings=self.graph_store.load_graph_embeddings(),
+            embedding_provider=self.llm.embedding_provider_name(),
+            embedding_model=self.llm.embedding_model(),
             relation_types=state.get("relation_types", []),
             max_nodes=self.max_graph_nodes,
             max_edges=self.max_graph_edges,
@@ -208,4 +218,17 @@ def _dedupe_citations(citations: Iterable[Citation]) -> list[Citation]:
             continue
         seen.add(key)
         result.append(citation)
+    return result
+
+
+def _dedupe_search_terms(search_terms: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for term in search_terms:
+        value = term.strip()
+        key = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+        if not value or key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
     return result

@@ -98,6 +98,12 @@ class LLMService:
         )
         return provider.embed(request)
 
+    def embedding_provider_name(self) -> str:
+        return self._config.default_provider
+
+    def embedding_model(self) -> str:
+        return self._config.provider_config().embedding_model
+
     def _provider(self, provider_name: str | None = None) -> LLMProvider:
         name = provider_name or self._config.default_provider
         provider = self._providers.get(name)

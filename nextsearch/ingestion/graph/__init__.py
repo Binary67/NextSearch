@@ -4,6 +4,12 @@ from nextsearch.ingestion.graph.dedupe import (
     dedupe_knowledge_graph,
     dedupe_knowledge_graph_incremental,
 )
+from nextsearch.ingestion.graph.embeddings import (
+    GraphEmbeddingIndex,
+    GraphEmbeddingIndexError,
+    GraphEmbeddingItem,
+    build_graph_embedding_index,
+)
 from nextsearch.ingestion.graph.llm_extractor import (
     extract_knowledge_graph_from_markdown,
 )
@@ -28,6 +34,9 @@ from nextsearch.ingestion.graph.relation_proposals import (
 
 __all__ = [
     "GraphDedupeResult",
+    "GraphEmbeddingIndex",
+    "GraphEmbeddingIndexError",
+    "GraphEmbeddingItem",
     "GraphEdge",
     "GraphNode",
     "GraphNodeMergeDecision",
@@ -36,6 +45,7 @@ __all__ = [
     "RelationTypeProposalSet",
     "SourceRef",
     "ExtractedSourceRef",
+    "build_graph_embedding_index",
     "build_relation_type_proposals",
     "dedupe_knowledge_graph",
     "dedupe_knowledge_graph_incremental",

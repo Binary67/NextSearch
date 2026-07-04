@@ -118,6 +118,12 @@ class LLMServiceTests(unittest.TestCase):
         self.assertEqual(response.embeddings, [[0.1, 0.2]])
         self.assertEqual(provider.requests[0].model, "nextsearch-embed")
 
+    def test_embedding_accessors_return_configured_defaults(self) -> None:
+        service = LLMService(config(), providers={"azure": FakeProvider()})
+
+        self.assertEqual(service.embedding_provider_name(), "azure")
+        self.assertEqual(service.embedding_model(), "nextsearch-embed")
+
 
 if __name__ == "__main__":
     unittest.main()

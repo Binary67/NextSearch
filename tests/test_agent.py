@@ -6,13 +6,19 @@ from typing import Any
 
 from nextsearch.agent import build_query_agent
 from nextsearch.agent.models import AnswerDraft, GraphSearchDecision, QueryPlan
+from nextsearch.ingestion.graph.embeddings import (
+    GraphEmbeddingIndex,
+    GraphEmbeddingItem,
+    graph_embedding_inputs,
+    graph_fingerprint,
+)
 from nextsearch.ingestion.graph.models import (
     GraphEdge,
     GraphNode,
     KnowledgeGraph,
     SourceRef,
 )
-from nextsearch.llm.types import LLMMessage
+from nextsearch.llm.types import EmbeddingResponse, LLMMessage
 from nextsearch.retrieval import MarkdownArtifactSourceStore
 
 
@@ -29,6 +35,7 @@ class FakeAgentLLM:
             cited_evidence_ids=[1],
         )
         self.calls: list[dict[str, Any]] = []
+        self.embed_calls: list[dict[str, Any]] = []
 
     def generate_json(
         self,
@@ -56,15 +63,38 @@ class FakeAgentLLM:
             return self.answer
         raise AssertionError(f"Unexpected response model {response_model}")
 
+    def embed(
+        self,
+        *,
+        role: str,
+        texts: list[str],
+    ) -> EmbeddingResponse:
+        self.embed_calls.append({"role": role, "texts": texts})
+        return EmbeddingResponse(
+            embeddings=[_vector(text) for text in texts],
+            provider="fake",
+            model="fake-embedding",
+        )
+
+    def embedding_provider_name(self) -> str:
+        return "fake"
+
+    def embedding_model(self) -> str:
+        return "fake-embedding"
+
 
 class CountingGraphStore:
     def __init__(self, graph: KnowledgeGraph) -> None:
         self.graph = graph
+        self.embeddings = _embedding_index(graph)
         self.calls = 0
 
     def load_graph(self) -> KnowledgeGraph:
         self.calls += 1
         return self.graph
+
+    def load_graph_embeddings(self) -> GraphEmbeddingIndex:
+        return self.embeddings
 
 
 class MissingSourceStore:
@@ -97,6 +127,8 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(len(result["citations"]), 1)
         self.assertEqual(result["citations"][0].document_id, "doc-1")
         self.assertEqual(graph_store.calls, 1)
+        self.assertEqual(llm.embed_calls[0]["role"], "graph_query_embedding")
+        self.assertEqual(llm.embed_calls[0]["texts"], ["Project Atlas"])
 
     def test_agent_loops_when_decision_requests_more_graph_search(self) -> None:
         llm = FakeAgentLLM(
@@ -124,6 +156,10 @@ class AgentTests(unittest.TestCase):
             result = agent.invoke({"query": "What risks are related to Project Atlas?"})
 
         self.assertEqual(graph_store.calls, 2)
+        self.assertEqual(
+            [call["texts"] for call in llm.embed_calls],
+            [["Project Atlas"], ["Data residency issue"]],
+        )
         self.assertTrue(result["citations"])
         self.assertEqual(
             [call["role"] for call in llm.calls],
@@ -222,6 +258,35 @@ def _graph() -> KnowledgeGraph:
             )
         ],
     )
+
+
+def _embedding_index(graph: KnowledgeGraph) -> GraphEmbeddingIndex:
+    return GraphEmbeddingIndex(
+        graph_document_id=graph.document_id,
+        graph_fingerprint=graph_fingerprint(graph),
+        provider="fake",
+        model="fake-embedding",
+        items=[
+            GraphEmbeddingItem(
+                item_type=item_input.item_type,
+                item_id=item_input.item_id,
+                text_hash=item_input.text_hash,
+                embedding=_vector(item_input.item_id),
+            )
+            for item_input in graph_embedding_inputs(graph)
+        ],
+    )
+
+
+def _vector(value: str) -> list[float]:
+    vectors = {
+        "Project Atlas": [1.0, 0.0],
+        "Data residency issue": [0.0, 1.0],
+        "project:project-atlas": [1.0, 0.0],
+        "risk:data-residency-issue": [0.0, 1.0],
+        "project:project-atlas|has_risk|risk:data-residency-issue": [0.0, 1.0],
+    }
+    return vectors[value]
 
 
 def _source_ref(quote: str) -> SourceRef:

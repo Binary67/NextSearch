@@ -4,6 +4,13 @@ import unittest
 from pathlib import Path
 
 from nextsearch.ingestion.artifacts import write_graph_artifact
+from nextsearch.ingestion.graph.embeddings import (
+    GraphEmbeddingIndex,
+    GraphEmbeddingIndexError,
+    GraphEmbeddingItem,
+    graph_embedding_inputs,
+    graph_fingerprint,
+)
 from nextsearch.ingestion.graph.models import (
     GraphEdge,
     GraphNode,
@@ -25,6 +32,7 @@ class RetrievalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             graph_dir = Path(tmpdir) / "corpus"
             write_graph_artifact(graph, graph_dir)
+            _write_embedding_index(graph, graph_dir)
 
             loaded = JsonGraphStore.from_artifact_dir(graph_dir).load_graph()
 
@@ -34,16 +42,105 @@ class RetrievalTests(unittest.TestCase):
             ["Project Atlas", "Vendor A", "Data residency issue"],
         )
 
+    def test_graph_store_loads_embedding_artifact(self) -> None:
+        graph = _graph()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            graph_dir = Path(tmpdir) / "corpus"
+            write_graph_artifact(graph, graph_dir)
+            _write_embedding_index(graph, graph_dir)
+
+            loaded = JsonGraphStore.from_artifact_dir(graph_dir).load_graph_embeddings()
+
+        self.assertEqual(loaded.graph_document_id, "corpus")
+        self.assertEqual(len(loaded.items), len(graph.nodes) + len(graph.edges))
+
+    def test_graph_store_fails_when_embedding_artifact_is_missing(self) -> None:
+        graph = _graph()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            graph_dir = Path(tmpdir) / "corpus"
+            write_graph_artifact(graph, graph_dir)
+
+            with self.assertRaises(GraphEmbeddingIndexError):
+                JsonGraphStore.from_artifact_dir(graph_dir).load_graph_embeddings()
+
+    def test_graph_search_rejects_stale_embedding_model(self) -> None:
+        graph = _graph()
+
+        with self.assertRaises(GraphEmbeddingIndexError):
+            search_graph(
+                graph,
+                search_terms=["Atlas"],
+                query_embeddings=[_vector("project:project-atlas")],
+                graph_embeddings=_embedding_index(graph, model="old-model"),
+                embedding_provider="fake",
+                embedding_model="fake-embedding",
+            )
+
+    def test_graph_search_rejects_stale_graph_fingerprint(self) -> None:
+        graph = _graph()
+        stale_index = _embedding_index(graph)
+        changed_graph = graph.model_copy(update={"content_hash": "new-hash"})
+
+        with self.assertRaises(GraphEmbeddingIndexError):
+            search_graph(
+                changed_graph,
+                search_terms=["Atlas"],
+                query_embeddings=[_vector("project:project-atlas")],
+                graph_embeddings=stale_index,
+                embedding_provider="fake",
+                embedding_model="fake-embedding",
+            )
+
     def test_graph_search_matches_nodes_and_expands_related_edges(self) -> None:
+        graph = _graph()
         result = search_graph(
-            _graph(),
+            graph,
             search_terms=["Atlas"],
+            query_embeddings=[_vector("project:project-atlas")],
+            graph_embeddings=_embedding_index(graph),
+            embedding_provider="fake",
+            embedding_model="fake-embedding",
             relation_types=["has_risk"],
         )
 
         self.assertIn("project:project-atlas", {node.id for node in result.nodes})
         self.assertIn("risk:data-residency-issue", {node.id for node in result.nodes})
         self.assertEqual([edge.relation_type for edge in result.edges], ["has_risk"])
+
+    def test_graph_search_finds_semantic_node_without_keyword_match(self) -> None:
+        graph = _graph()
+
+        result = search_graph(
+            graph,
+            search_terms=["cloud hosting company"],
+            query_embeddings=[_vector("organization:vendor-a")],
+            graph_embeddings=_embedding_index(graph),
+            embedding_provider="fake",
+            embedding_model="fake-embedding",
+            relation_types=["depends_on"],
+        )
+
+        self.assertIn("organization:vendor-a", {node.id for node in result.nodes})
+        self.assertEqual([edge.relation_type for edge in result.edges], ["depends_on"])
+
+    def test_graph_search_finds_semantic_edge_without_keyword_match(self) -> None:
+        graph = _graph()
+
+        result = search_graph(
+            graph,
+            search_terms=["compliance exposure"],
+            query_embeddings=[_vector("project:project-atlas|has_risk|risk:data-residency-issue")],
+            graph_embeddings=_embedding_index(graph),
+            embedding_provider="fake",
+            embedding_model="fake-embedding",
+            relation_types=["has_risk"],
+        )
+
+        self.assertEqual([edge.relation_type for edge in result.edges], ["has_risk"])
+        self.assertIn("project:project-atlas", {node.id for node in result.nodes})
+        self.assertIn("risk:data-residency-issue", {node.id for node in result.nodes})
 
     def test_evidence_builder_maps_source_refs_to_markdown_sections(self) -> None:
         graph = _graph()
@@ -54,6 +151,10 @@ class RetrievalTests(unittest.TestCase):
             result = search_graph(
                 graph,
                 search_terms=["Atlas"],
+                query_embeddings=[_vector("project:project-atlas")],
+                graph_embeddings=_embedding_index(graph),
+                embedding_provider="fake",
+                embedding_model="fake-embedding",
                 relation_types=["has_risk"],
             )
 
@@ -66,6 +167,48 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(evidence[0].citation.document_id, "doc-1")
         self.assertEqual(evidence[0].citation.section_id, "section-0001")
         self.assertIn("Data residency issue", evidence[0].snippet)
+
+
+def _write_embedding_index(graph: KnowledgeGraph, graph_dir: Path) -> None:
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    (graph_dir / "graph_embeddings.json").write_text(
+        json.dumps(_embedding_index(graph).model_dump(mode="json"), indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _embedding_index(
+    graph: KnowledgeGraph,
+    *,
+    provider: str = "fake",
+    model: str = "fake-embedding",
+) -> GraphEmbeddingIndex:
+    return GraphEmbeddingIndex(
+        graph_document_id=graph.document_id,
+        graph_fingerprint=graph_fingerprint(graph),
+        provider=provider,
+        model=model,
+        items=[
+            GraphEmbeddingItem(
+                item_type=item_input.item_type,
+                item_id=item_input.item_id,
+                text_hash=item_input.text_hash,
+                embedding=_vector(item_input.item_id),
+            )
+            for item_input in graph_embedding_inputs(graph)
+        ],
+    )
+
+
+def _vector(item_id: str) -> list[float]:
+    vectors = {
+        "project:project-atlas": [1.0, 0.0, 0.0],
+        "organization:vendor-a": [0.0, 1.0, 0.0],
+        "risk:data-residency-issue": [0.0, 0.0, 0.0],
+        "project:project-atlas|depends_on|organization:vendor-a": [0.0, 1.0, 0.0],
+        "project:project-atlas|has_risk|risk:data-residency-issue": [0.0, 0.0, 1.0],
+    }
+    return vectors[item_id]
 
 
 def _write_document_artifacts(root: Path) -> None:

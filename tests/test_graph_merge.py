@@ -28,6 +28,7 @@ class FakeIngestLLM:
     def __init__(self) -> None:
         self.text_calls = 0
         self.graph_calls = 0
+        self.embed_calls = 0
 
     def generate_text(
         self,
@@ -55,6 +56,25 @@ class FakeIngestLLM:
     ) -> Any:
         self.graph_calls += 1
         return SectionGraphExtraction(nodes=[], edges=[])
+
+    def embed(
+        self,
+        *,
+        role: str,
+        texts: list[str],
+    ) -> EmbeddingResponse:
+        self.embed_calls += 1
+        return EmbeddingResponse(
+            embeddings=[[1.0] for _text in texts],
+            provider="fake",
+            model="fake-embedding",
+        )
+
+    def embedding_provider_name(self) -> str:
+        return "fake"
+
+    def embedding_model(self) -> str:
+        return "fake-embedding"
 
 
 class FailingLLM:
@@ -221,10 +241,13 @@ class KnowledgeGraphMergeTests(unittest.TestCase):
             self.assertTrue((root / "documents" / "doc-1" / "document.md").exists())
             self.assertTrue((root / "documents" / "doc-1" / "manifest.json").exists())
             self.assertTrue((root / "documents" / "doc-1" / "graph.json").exists())
+            self.assertTrue((root / "documents" / "doc-1" / "graph_embeddings.json").exists())
             self.assertTrue((root / "corpus" / "graph.json").exists())
+            self.assertTrue((root / "corpus" / "graph_embeddings.json").exists())
 
         self.assertEqual(llm.text_calls, 1)
         self.assertEqual(llm.graph_calls, 1)
+        self.assertEqual(llm.embed_calls, 0)
 
     def test_incremental_dedupe_only_compares_incoming_candidates(self) -> None:
         vendor = _node("doc-old", "organization", "Vendor A", "Vendor A is mentioned.")

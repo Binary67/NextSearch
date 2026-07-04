@@ -9,7 +9,12 @@ from nextsearch.ingestion.graph.models import (
     KnowledgeGraph,
     RelationTypeProposalSet,
 )
+from nextsearch.ingestion.graph.embeddings import (
+    GraphEmbeddingIndex,
+    build_graph_embedding_index,
+)
 from nextsearch.ingestion.models import MarkdownDocument
+from nextsearch.llm.service import LLMService
 
 
 def write_markdown_artifacts(document: MarkdownDocument, output_dir: Path) -> None:
@@ -38,6 +43,36 @@ def write_graph_artifact(graph: KnowledgeGraph, output_dir: Path) -> None:
 
 def read_graph_artifact(graph_path: Path) -> KnowledgeGraph:
     return KnowledgeGraph.model_validate_json(graph_path.read_text(encoding="utf-8"))
+
+
+def write_graph_embedding_artifact(
+    graph: KnowledgeGraph,
+    llm: LLMService,
+    output_dir: Path,
+) -> GraphEmbeddingIndex:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    embedding_path = output_dir / "graph_embeddings.json"
+    previous_index = (
+        read_graph_embedding_artifact(embedding_path)
+        if embedding_path.exists()
+        else None
+    )
+    index = build_graph_embedding_index(
+        graph,
+        llm,
+        previous_index=previous_index,
+    )
+    embedding_path.write_text(
+        json.dumps(index.model_dump(mode="json"), indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return index
+
+
+def read_graph_embedding_artifact(embedding_path: Path) -> GraphEmbeddingIndex:
+    return GraphEmbeddingIndex.model_validate_json(
+        embedding_path.read_text(encoding="utf-8")
+    )
 
 
 def write_graph_merge_decisions_artifact(

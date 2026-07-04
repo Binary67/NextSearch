@@ -16,7 +16,7 @@ from nextsearch.ingestion.graph.models import (
 )
 from nextsearch.ingestion.models import MarkdownDocument
 from nextsearch.ingestion.pipeline import extract_pdf_to_knowledge_graph
-from nextsearch.llm.types import LLMMessage, LLMResponse
+from nextsearch.llm.types import EmbeddingResponse, LLMMessage, LLMResponse
 from tests.pdf_fixture import build_text_pdf
 
 
@@ -49,6 +49,7 @@ class FakeGraphLLM:
 class FakePDFGraphLLM:
     def __init__(self) -> None:
         self.graph_calls = 0
+        self.embed_calls = 0
 
     def generate_text(
         self,
@@ -75,6 +76,25 @@ class FakePDFGraphLLM:
     ) -> SectionGraphExtraction:
         self.graph_calls += 1
         return SectionGraphExtraction(nodes=[], edges=[])
+
+    def embed(
+        self,
+        *,
+        role: str,
+        texts: list[str],
+    ) -> EmbeddingResponse:
+        self.embed_calls += 1
+        return EmbeddingResponse(
+            embeddings=[[1.0] for _text in texts],
+            provider="fake",
+            model="fake-embedding",
+        )
+
+    def embedding_provider_name(self) -> str:
+        return "fake"
+
+    def embedding_model(self) -> str:
+        return "fake-embedding"
 
 
 class KnowledgeGraphExtractionTests(unittest.TestCase):
@@ -209,12 +229,15 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
             )
 
             graph_path = output_dir / "graph.json"
+            embedding_path = output_dir / "graph_embeddings.json"
             proposal_path = output_dir / "relation_type_proposals.json"
             payload = json.loads(graph_path.read_text(encoding="utf-8"))
+            embedding_payload = json.loads(embedding_path.read_text(encoding="utf-8"))
             proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
 
             self.assertEqual(graph.schema_version, 1)
             self.assertTrue(graph_path.exists())
+            self.assertTrue(embedding_path.exists())
             self.assertTrue(proposal_path.exists())
             self.assertEqual(payload["schema_version"], 1)
             self.assertEqual(payload["document_id"], "doc-1")
@@ -222,9 +245,12 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
             self.assertEqual(payload["content_hash"], graph.content_hash)
             self.assertIn("nodes", payload)
             self.assertIn("edges", payload)
+            self.assertEqual(embedding_payload["graph_document_id"], "doc-1")
+            self.assertEqual(embedding_payload["model"], "fake-embedding")
             self.assertEqual(proposal_payload["document_id"], "doc-1")
             self.assertEqual(proposal_payload["proposals"], [])
             self.assertEqual(llm.graph_calls, 1)
+            self.assertEqual(llm.embed_calls, 0)
 
 
 def _document(markdown: str) -> MarkdownDocument:
