@@ -22,6 +22,29 @@ text_model = "nextsearch-chat"
 embedding_model = "nextsearch-embed"
 """
 
+EXTRACTION_CONFIG = """
+[llm]
+default_provider = "azure_primary"
+
+[llm.roles]
+markdown_extraction = "azure_extraction"
+answer_generation = "azure_primary"
+
+[llm.providers.azure_primary]
+provider = "azure_openai_v1"
+base_url_env = "AZURE_OPENAI_BASE_URL"
+api_key_env = "AZURE_OPENAI_API_KEY"
+text_model = "strong-agent-model"
+embedding_model = "nextsearch-embed"
+
+[llm.providers.azure_extraction]
+provider = "azure_openai_v1"
+base_url_env = "AZURE_OPENAI_BASE_URL"
+api_key_env = "AZURE_OPENAI_API_KEY"
+text_model = "small-extraction-model"
+embedding_model = "nextsearch-embed"
+"""
+
 
 class LLMConfigTests(unittest.TestCase):
     def test_load_valid_toml_config(self) -> None:
@@ -79,6 +102,22 @@ class LLMConfigTests(unittest.TestCase):
 
         with self.assertRaises(LLMConfigError):
             config.provider_name_for_role("summarization")
+
+    def test_role_can_use_different_extraction_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "llm.toml"
+            config_path.write_text(EXTRACTION_CONFIG)
+
+            config = load_llm_config(config_path, env_path=None)
+
+        self.assertEqual(
+            config.provider_for_role("markdown_extraction").text_model,
+            "small-extraction-model",
+        )
+        self.assertEqual(
+            config.provider_for_role("answer_generation").text_model,
+            "strong-agent-model",
+        )
 
     def test_env_file_overrides_existing_environment_value(self) -> None:
         name = "NEXTSEARCH_TEST_DOTENV_OVERRIDE"
