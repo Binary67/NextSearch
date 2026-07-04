@@ -1,24 +1,16 @@
-[llm]
-default_provider = "azure_primary"
-
-[llm.roles]
-summarization = "azure_primary"
-query_planning = "azure_primary"
-markdown_extraction = "azure_extraction"
-graph_extraction = "azure_primary"
-answer_generation = "azure_primary"
-document_embedding = "azure_primary"
-
-[llm.providers.azure_primary]
+[llm.azure]
 provider = "azure_openai_v1"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
-text_model = "gpt-5.5"
 embedding_model = "nextsearch-embed"
 
-[llm.providers.azure_extraction]
-provider = "azure_openai_v1"
-base_url_env = "AZURE_OPENAI_BASE_URL"
-api_key_env = "AZURE_OPENAI_API_KEY"
-text_model = "nextsearch-extraction"
-embedding_model = "nextsearch-embed"
+[llm.models]
+fast = "nextsearch-extraction"
+flagship = "gpt-5.5"
+
+[llm.tasks]
+summarization = "fast"
+query_planning = "fast"
+markdown_extraction = "fast"
+graph_extraction = "flagship"
+answer_generation = "flagship"

@@ -8,41 +8,34 @@ from nextsearch.llm.types import LLMConfigError
 
 
 VALID_CONFIG = """
-[llm]
-default_provider = "azure_primary"
-
-[llm.roles]
-summarization = "azure_primary"
-
-[llm.providers.azure_primary]
+[llm.azure]
 provider = "azure_openai_v1"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
-text_model = "nextsearch-chat"
 embedding_model = "nextsearch-embed"
+
+[llm.models]
+fast = "nextsearch-chat"
+flagship = "nextsearch-flagship"
+
+[llm.tasks]
+summarization = "fast"
 """
 
 EXTRACTION_CONFIG = """
-[llm]
-default_provider = "azure_primary"
-
-[llm.roles]
-markdown_extraction = "azure_extraction"
-answer_generation = "azure_primary"
-
-[llm.providers.azure_primary]
+[llm.azure]
 provider = "azure_openai_v1"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
-text_model = "strong-agent-model"
 embedding_model = "nextsearch-embed"
 
-[llm.providers.azure_extraction]
-provider = "azure_openai_v1"
-base_url_env = "AZURE_OPENAI_BASE_URL"
-api_key_env = "AZURE_OPENAI_API_KEY"
-text_model = "small-extraction-model"
-embedding_model = "nextsearch-embed"
+[llm.models]
+fast = "nextsearch-extraction"
+flagship = "strong-agent-model"
+
+[llm.tasks]
+markdown_extraction = "fast"
+answer_generation = "flagship"
 """
 
 
@@ -55,16 +48,13 @@ class LLMConfigTests(unittest.TestCase):
             config = load_llm_config(config_path, env_path=None)
 
         self.assertIsInstance(config, LLMConfig)
-        self.assertEqual(config.provider_name_for_role("summarization"), "azure_primary")
-        self.assertEqual(
-            config.provider_for_role("summarization").text_model,
-            "nextsearch-chat",
-        )
+        self.assertEqual(config.text_model_for_task("summarization"), "nextsearch-chat")
+        self.assertEqual(config.azure.embedding_model, "nextsearch-embed")
 
-    def test_role_referencing_unknown_provider_fails_validation(self) -> None:
+    def test_task_referencing_unknown_model_tier_fails_validation(self) -> None:
         config = VALID_CONFIG.replace(
-            'summarization = "azure_primary"',
-            'summarization = "missing_provider"',
+            'summarization = "fast"',
+            'summarization = "missing_tier"',
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "llm.toml"
@@ -83,27 +73,27 @@ class LLMConfigTests(unittest.TestCase):
             if old_value is not None:
                 os.environ[name] = old_value
 
-    def test_missing_role_raises_config_error(self) -> None:
+    def test_missing_task_raises_config_error(self) -> None:
         config = LLMConfig.model_validate(
             {
-                "default_provider": "azure_primary",
-                "roles": {},
-                "providers": {
-                    "azure_primary": {
-                        "provider": "azure_openai_v1",
-                        "base_url_env": "AZURE_OPENAI_BASE_URL",
-                        "api_key_env": "AZURE_OPENAI_API_KEY",
-                        "text_model": "nextsearch-chat",
-                        "embedding_model": "nextsearch-embed",
-                    }
+                "azure": {
+                    "provider": "azure_openai_v1",
+                    "base_url_env": "AZURE_OPENAI_BASE_URL",
+                    "api_key_env": "AZURE_OPENAI_API_KEY",
+                    "embedding_model": "nextsearch-embed",
                 },
+                "models": {
+                    "fast": "nextsearch-chat",
+                    "flagship": "nextsearch-flagship",
+                },
+                "tasks": {},
             }
         )
 
         with self.assertRaises(LLMConfigError):
-            config.provider_name_for_role("summarization")
+            config.text_model_for_task("summarization")
 
-    def test_role_can_use_different_extraction_model(self) -> None:
+    def test_tasks_can_use_different_model_tiers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "llm.toml"
             config_path.write_text(EXTRACTION_CONFIG)
@@ -111,11 +101,11 @@ class LLMConfigTests(unittest.TestCase):
             config = load_llm_config(config_path, env_path=None)
 
         self.assertEqual(
-            config.provider_for_role("markdown_extraction").text_model,
-            "small-extraction-model",
+            config.text_model_for_task("markdown_extraction"),
+            "nextsearch-extraction",
         )
         self.assertEqual(
-            config.provider_for_role("answer_generation").text_model,
+            config.text_model_for_task("answer_generation"),
             "strong-agent-model",
         )
 

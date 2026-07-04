@@ -29,7 +29,7 @@ class FakeProvider:
 
     def generate_text(self, request: TextGenerationRequest) -> LLMResponse:
         self.requests.append(request)
-        return LLMResponse(text="hello", provider="azure_primary", model=request.model)
+        return LLMResponse(text="hello", provider="azure", model=request.model)
 
     def generate_json(self, request: StructuredGenerationRequest[Any]) -> Any:
         self.requests.append(request)
@@ -39,7 +39,7 @@ class FakeProvider:
         self.requests.append(request)
         return EmbeddingResponse(
             embeddings=[[0.1, 0.2]],
-            provider="azure_primary",
+            provider="azure",
             model=request.model,
         )
 
@@ -47,20 +47,19 @@ class FakeProvider:
 def config() -> LLMConfig:
     return LLMConfig.model_validate(
         {
-            "default_provider": "azure_primary",
-            "roles": {
-                "summarization": "azure_primary",
-                "graph_extraction": "azure_primary",
-                "document_embedding": "azure_primary",
+            "azure": {
+                "provider": "azure_openai_v1",
+                "base_url_env": "AZURE_OPENAI_BASE_URL",
+                "api_key_env": "AZURE_OPENAI_API_KEY",
+                "embedding_model": "nextsearch-embed",
             },
-            "providers": {
-                "azure_primary": {
-                    "provider": "azure_openai_v1",
-                    "base_url_env": "AZURE_OPENAI_BASE_URL",
-                    "api_key_env": "AZURE_OPENAI_API_KEY",
-                    "text_model": "nextsearch-chat",
-                    "embedding_model": "nextsearch-embed",
-                }
+            "models": {
+                "fast": "nextsearch-fast",
+                "flagship": "nextsearch-flagship",
+            },
+            "tasks": {
+                "summarization": "fast",
+                "graph_extraction": "flagship",
             },
         }
     )
@@ -69,7 +68,7 @@ def config() -> LLMConfig:
 class LLMServiceTests(unittest.TestCase):
     def test_generate_text_routes_to_configured_provider(self) -> None:
         provider = FakeProvider()
-        service = LLMService(config(), providers={"azure_primary": provider})
+        service = LLMService(config(), providers={"azure": provider})
 
         response = service.generate_text(
             role="summarization",
@@ -77,11 +76,11 @@ class LLMServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(response.text, "hello")
-        self.assertEqual(provider.requests[0].model, "nextsearch-chat")
+        self.assertEqual(provider.requests[0].model, "nextsearch-fast")
 
     def test_generate_json_validates_provider_result(self) -> None:
         provider = FakeProvider()
-        service = LLMService(config(), providers={"azure_primary": provider})
+        service = LLMService(config(), providers={"azure": provider})
 
         result = service.generate_json(
             role="graph_extraction",
@@ -90,11 +89,12 @@ class LLMServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(result, Answer(value="ok"))
+        self.assertEqual(provider.requests[0].model, "nextsearch-flagship")
 
     def test_generate_json_rejects_invalid_provider_result(self) -> None:
         provider = FakeProvider()
         provider.json_result = {"missing": "value"}
-        service = LLMService(config(), providers={"azure_primary": provider})
+        service = LLMService(config(), providers={"azure": provider})
 
         with self.assertRaises(LLMStructuredOutputError):
             service.generate_json(
@@ -105,7 +105,7 @@ class LLMServiceTests(unittest.TestCase):
 
     def test_embed_routes_to_configured_provider(self) -> None:
         provider = FakeProvider()
-        service = LLMService(config(), providers={"azure_primary": provider})
+        service = LLMService(config(), providers={"azure": provider})
 
         response = service.embed(
             role="document_embedding",

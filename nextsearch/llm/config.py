@@ -6,58 +6,42 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from nextsearch.llm.types import LLMConfigError
 
+ModelTier = Literal["fast", "flagship"]
 
-class ProviderConfig(BaseModel):
+
+class AzureConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: Literal["azure_openai_v1"]
     base_url_env: str
     api_key_env: str
-    text_model: str
     embedding_model: str
+
+
+class ModelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fast: str
+    flagship: str
 
 
 class LLMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    default_provider: str
-    roles: dict[str, str] = Field(default_factory=dict)
-    providers: dict[str, ProviderConfig]
+    azure: AzureConfig
+    models: ModelConfig
+    tasks: dict[str, ModelTier] = Field(default_factory=dict)
 
-    @model_validator(mode="after")
-    def validate_provider_references(self) -> LLMConfig:
-        if self.default_provider not in self.providers:
-            raise ValueError(
-                f"default_provider {self.default_provider!r} is not defined in providers"
-            )
-
-        missing = sorted(
-            {
-                provider_name
-                for provider_name in self.roles.values()
-                if provider_name not in self.providers
-            }
-        )
-        if missing:
-            raise ValueError(
-                "roles reference unknown provider(s): " + ", ".join(missing)
-            )
-
-        return self
-
-    def provider_name_for_role(self, role: str) -> str:
+    def text_model_for_task(self, task: str) -> str:
         try:
-            return self.roles[role]
+            tier = self.tasks[task]
         except KeyError as exc:
-            raise LLMConfigError(f"LLM role {role!r} is not configured") from exc
-
-    def provider_for_role(self, role: str) -> ProviderConfig:
-        provider_name = self.provider_name_for_role(role)
-        return self.providers[provider_name]
+            raise LLMConfigError(f"LLM task {task!r} is not configured") from exc
+        return getattr(self.models, tier)
 
 
 def load_llm_config(

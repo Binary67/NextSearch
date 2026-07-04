@@ -58,7 +58,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
             return FakeClient()
 
         AzureOpenAIV1Provider(
-            name="azure_primary",
+            name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",
             client_factory=factory,
@@ -77,7 +77,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
     def test_generate_text_uses_responses_create_with_text_model(self) -> None:
         client = FakeClient()
         provider = AzureOpenAIV1Provider(
-            name="azure_primary",
+            name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",
             client_factory=lambda **_: client,
@@ -101,7 +101,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
     def test_generate_json_uses_responses_parse_with_pydantic_model(self) -> None:
         client = FakeClient()
         provider = AzureOpenAIV1Provider(
-            name="azure_primary",
+            name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",
             client_factory=lambda **_: client,
@@ -123,7 +123,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
     def test_embed_uses_embeddings_create_with_embedding_model(self) -> None:
         client = FakeClient()
         provider = AzureOpenAIV1Provider(
-            name="azure_primary",
+            name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",
             client_factory=lambda **_: client,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from nextsearch.llm.config import LLMConfig, ProviderConfig, load_llm_config, require_env
+from nextsearch.llm.config import AzureConfig, LLMConfig, load_llm_config, require_env
 from nextsearch.llm.providers.azure_openai_v1 import AzureOpenAIV1Provider
 from nextsearch.llm.types import (
     EmbeddingRequest,
@@ -48,10 +48,11 @@ class LLMService:
         temperature: float | None = None,
         max_output_tokens: int | None = None,
     ) -> LLMResponse:
-        _, provider_config, provider = self._provider_for_role(role)
+        model = self._config.text_model_for_task(role)
+        provider = self._azure_provider()
         request = TextGenerationRequest(
             role=role,
-            model=provider_config.text_model,
+            model=model,
             messages=messages,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
@@ -67,10 +68,11 @@ class LLMService:
         temperature: float | None = None,
         max_output_tokens: int | None = None,
     ) -> ResponseModelT:
-        _, provider_config, provider = self._provider_for_role(role)
+        model = self._config.text_model_for_task(role)
+        provider = self._azure_provider()
         request = StructuredGenerationRequest(
             role=role,
-            model=provider_config.text_model,
+            model=model,
             messages=messages,
             response_model=response_model,
             temperature=temperature,
@@ -88,33 +90,26 @@ class LLMService:
             ) from exc
 
     def embed(self, *, role: str, texts: Sequence[str]) -> EmbeddingResponse:
-        _, provider_config, provider = self._provider_for_role(role)
+        provider = self._azure_provider()
         request = EmbeddingRequest(
             role=role,
-            model=provider_config.embedding_model,
+            model=self._config.azure.embedding_model,
             texts=texts,
         )
         return provider.embed(request)
 
-    def _provider_for_role(
-        self, role: str
-    ) -> tuple[str, ProviderConfig, LLMProvider]:
-        provider_name = self._config.provider_name_for_role(role)
-        provider_config = self._config.providers[provider_name]
-
-        provider = self._providers.get(provider_name)
+    def _azure_provider(self) -> LLMProvider:
+        provider = self._providers.get("azure")
         if provider is None:
-            provider = self._build_provider(provider_name, provider_config)
-            self._providers[provider_name] = provider
+            provider = self._build_provider(self._config.azure)
+            self._providers["azure"] = provider
 
-        return provider_name, provider_config, provider
+        return provider
 
-    def _build_provider(
-        self, provider_name: str, provider_config: ProviderConfig
-    ) -> LLMProvider:
+    def _build_provider(self, provider_config: AzureConfig) -> LLMProvider:
         if provider_config.provider == "azure_openai_v1":
             return AzureOpenAIV1Provider(
-                name=provider_name,
+                name="azure",
                 base_url=require_env(provider_config.base_url_env),
                 api_key=require_env(provider_config.api_key_env),
             )
