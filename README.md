@@ -21,10 +21,12 @@ Implemented today:
 - Markdown section splitting with page range tracking.
 - Knowledge graph extraction from Markdown sections.
 - Graph node and edge models with source references.
-- LLM-adjudicated graph node deduplication.
-- Incremental PDF ingestion into a corpus-level graph.
-- JSON artifacts for Markdown extraction, graph extraction, and graph merge
-  decisions.
+- LLM-adjudicated graph node deduplication with deterministic and
+  embedding-assisted candidate generation.
+- Incremental PDF ingestion into a corpus-level graph, including document
+  replacement and unchanged-document skipping by content hash.
+- JSON artifacts for Markdown extraction, graph extraction, relation type
+  proposals, and graph merge decisions.
 - JSON-backed query-time graph retrieval and source evidence lookup.
 - Provider-neutral LangGraph query agent with a controlled graph-search loop.
 - Unit tests covering LLM config/service/provider behavior, PDF ingestion,
@@ -34,7 +36,7 @@ Implemented today:
 Not implemented yet:
 
 - A user-facing app, API server, or production CLI.
-- Vector index or durable query-time document store.
+- Vector index or database-backed retrieval store.
 - Citation rendering in a user-facing interface.
 - OCR for scanned or image-only PDFs.
 
@@ -168,8 +170,10 @@ graph = extract_pdf_to_knowledge_graph(
 )
 ```
 
-This writes `graph.json` alongside the Markdown artifacts when `output_dir` is
-provided. The graph `content_hash` is computed from the PDF bytes.
+This writes `graph.json` and `relation_type_proposals.json` alongside the
+Markdown artifacts when `output_dir` is provided. The graph `content_hash` is
+computed from the PDF bytes. Relation type proposals are kept separate from the
+canonical graph so suggested labels can be reviewed before promotion.
 
 ### Dedupe Graph Nodes
 
@@ -183,8 +187,10 @@ node_replacements = result.node_id_replacements
 ```
 
 Graph dedupe generates candidate node pairs using deterministic name and
-neighbor heuristics, then asks the configured LLM to adjudicate whether each
-candidate refers to the same real-world entity.
+neighbor heuristics plus embedding similarity, then asks the configured LLM to
+adjudicate whether each candidate refers to the same real-world entity.
+Accepted merges rewrite node IDs, combine source references, and drop self-loop
+edges created by the merge.
 
 ### Ingest A PDF Into A Corpus Graph
 
@@ -205,9 +211,12 @@ corpus_graph = ingest_pdf_to_corpus_graph(
 )
 ```
 
-Corpus ingestion writes per-document artifacts under `artifacts/documents/` and
-the merged corpus graph under `artifacts/corpus/`. When a matching document
-hash is already present, the existing corpus graph is returned unchanged.
+Corpus ingestion writes per-document Markdown, graph, and relation proposal
+artifacts under `artifacts/documents/`, then writes the merged corpus graph and
+corpus-level relation proposal artifact under `artifacts/corpus/`. When graph
+dedupe makes decisions, it also writes `graph_merge_decisions.json` under
+`artifacts/corpus/`. When a matching document hash is already present, the
+existing corpus graph is returned unchanged.
 
 ### Query A Corpus Graph
 
@@ -246,8 +255,7 @@ Target query flow:
 ```text
 User query
   -> understand intent and key entities/concepts
-  -> search metadata, summaries, and embeddings
-  -> optionally search graph nodes and relationships
+  -> search metadata, summaries, embeddings, and graph relationships
   -> rank candidate documents, sections, and evidence spans
   -> inspect selected source material
   -> answer with citations
@@ -261,7 +269,19 @@ PDF
   -> Markdown with page anchors
   -> addressable sections
   -> graph extraction with source references
-  -> optional graph dedupe
+  -> relation type proposal artifact
+  -> corpus merge and incremental graph dedupe
+```
+
+The implemented query-agent flow is:
+
+```text
+User query
+  -> LLM query planning
+  -> JSON graph search
+  -> source evidence lookup from Markdown artifacts
+  -> LLM decision to answer or search again
+  -> answer with citations
 ```
 
 ## Knowledge Graph Role
@@ -330,8 +350,12 @@ Run targeted tests with `unittest`:
 uv run python -m unittest tests.test_ingestion_pdf
 uv run python -m unittest tests.test_ingestion_markdown
 uv run python -m unittest tests.test_ingestion_sections
+uv run python -m unittest tests.test_ingestion_graph
 uv run python -m unittest tests.test_llm_config
 uv run python -m unittest tests.test_llm_service
+uv run python -m unittest tests.test_azure_openai_v1
+uv run python -m unittest tests.test_graph_dedupe
+uv run python -m unittest tests.test_graph_merge
 uv run python -m unittest tests.test_retrieval
 uv run python -m unittest tests.test_agent
 ```
