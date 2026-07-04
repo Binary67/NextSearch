@@ -10,9 +10,9 @@ from nextsearch.ingestion.graph.llm_extractor import (
 from nextsearch.ingestion.graph.models import (
     ExtractedEdge,
     ExtractedNode,
+    ExtractedSourceRef,
     NodeRef,
     SectionGraphExtraction,
-    SourceRef,
 )
 from nextsearch.ingestion.models import MarkdownDocument
 from nextsearch.ingestion.pipeline import extract_pdf_to_knowledge_graph
@@ -126,7 +126,12 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
             ]
         )
 
-        graph = extract_knowledge_graph_from_markdown(document, llm)  # type: ignore[arg-type]
+        graph = extract_knowledge_graph_from_markdown(
+            document,
+            llm,  # type: ignore[arg-type]
+            document_id="doc-1",
+            content_hash="hash-1",
+        )
 
         self.assertEqual([call["role"] for call in llm.calls], ["graph_extraction", "graph_extraction"])
         self.assertIs(llm.calls[0]["response_model"], SectionGraphExtraction)
@@ -137,6 +142,7 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
         self.assertEqual(edge.id, "project:project-atlas|depends_on|organization:vendor-a")
         self.assertEqual(edge.confidence, 0.9)
         self.assertEqual(len(edge.source_refs), 2)
+        self.assertEqual({ref.document_id for ref in edge.source_refs}, {"doc-1"})
         self.assertEqual([ref.section_id for ref in edge.source_refs], ["section-0001", "section-0002"])
 
     def test_extract_graph_does_not_merge_similar_node_names(self) -> None:
@@ -175,7 +181,12 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
             ]
         )
 
-        graph = extract_knowledge_graph_from_markdown(document, llm)  # type: ignore[arg-type]
+        graph = extract_knowledge_graph_from_markdown(
+            document,
+            llm,  # type: ignore[arg-type]
+            document_id="doc-1",
+            content_hash="hash-1",
+        )
 
         self.assertIn("organization:vendor-a", {node.id for node in graph.nodes})
         self.assertIn("organization:vendor-a-ltd", {node.id for node in graph.nodes})
@@ -193,6 +204,7 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
             graph = extract_pdf_to_knowledge_graph(
                 pdf_path,
                 llm,  # type: ignore[arg-type]
+                document_id="doc-1",
                 output_dir=output_dir,
             )
 
@@ -202,7 +214,9 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
             self.assertEqual(graph.schema_version, 1)
             self.assertTrue(graph_path.exists())
             self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(payload["document_id"], "doc-1")
             self.assertEqual(payload["source_path"], str(pdf_path))
+            self.assertEqual(payload["content_hash"], graph.content_hash)
             self.assertIn("nodes", payload)
             self.assertIn("edges", payload)
             self.assertEqual(llm.graph_calls, 1)
@@ -245,8 +259,8 @@ def _edge(
     )
 
 
-def _source_ref(quote: str) -> SourceRef:
-    return SourceRef(
+def _source_ref(quote: str) -> ExtractedSourceRef:
+    return ExtractedSourceRef(
         section_id="ignored",
         heading="ignored",
         quote=quote,

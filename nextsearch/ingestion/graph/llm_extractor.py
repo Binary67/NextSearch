@@ -7,6 +7,7 @@ from nextsearch.ingestion.graph.models import (
     EntityType,
     ExtractedEdge,
     ExtractedNode,
+    ExtractedSourceRef,
     GraphEdge,
     GraphNode,
     KnowledgeGraph,
@@ -24,6 +25,8 @@ def extract_knowledge_graph_from_markdown(
     document: MarkdownDocument,
     llm: LLMService,
     *,
+    document_id: str,
+    content_hash: str,
     role: str = "graph_extraction",
 ) -> KnowledgeGraph:
     sections = split_markdown_into_sections(document)
@@ -51,9 +54,12 @@ def extract_knowledge_graph_from_markdown(
             edges=edges,
             extraction=extraction,
             section=section,
+            document_id=document_id,
         )
 
     return KnowledgeGraph(
+        document_id=document_id,
+        content_hash=content_hash,
         source_path=str(document.source_path),
         page_count=document.page_count,
         nodes=list(nodes.values()),
@@ -67,6 +73,7 @@ def _merge_extraction(
     edges: dict[str, GraphEdge],
     extraction: SectionGraphExtraction,
     section: DocumentSection,
+    document_id: str,
 ) -> None:
     for extracted_node in extraction.nodes:
         _merge_node(
@@ -74,11 +81,19 @@ def _merge_extraction(
             node_type=extracted_node.type,
             name=extracted_node.name,
             description=extracted_node.description,
-            source_refs=_normalize_source_refs(extracted_node.source_refs, section),
+            source_refs=_normalize_source_refs(
+                extracted_node.source_refs,
+                section,
+                document_id=document_id,
+            ),
         )
 
     for extracted_edge in extraction.edges:
-        edge_source_refs = _normalize_source_refs(extracted_edge.source_refs, section)
+        edge_source_refs = _normalize_source_refs(
+            extracted_edge.source_refs,
+            section,
+            document_id=document_id,
+        )
         source_node_id = _merge_node_ref(nodes, extracted_edge.source, edge_source_refs)
         target_node_id = _merge_node_ref(nodes, extracted_edge.target, edge_source_refs)
         _merge_edge(
@@ -171,8 +186,10 @@ def _merge_edge(
 
 
 def _normalize_source_refs(
-    source_refs: list[SourceRef],
+    source_refs: list[ExtractedSourceRef],
     section: DocumentSection,
+    *,
+    document_id: str,
 ) -> list[SourceRef]:
     normalized: list[SourceRef] = []
     for source_ref in source_refs:
@@ -180,6 +197,7 @@ def _normalize_source_refs(
         if quote:
             normalized.append(
                 SourceRef(
+                    document_id=document_id,
                     section_id=section.id,
                     heading=section.heading,
                     page_start=section.page_start,
@@ -197,6 +215,7 @@ def _merge_source_refs(
     merged = list(existing)
     seen = {
         (
+            source_ref.document_id,
             source_ref.section_id,
             source_ref.heading,
             source_ref.page_start,
@@ -207,6 +226,7 @@ def _merge_source_refs(
     }
     for source_ref in incoming:
         key = (
+            source_ref.document_id,
             source_ref.section_id,
             source_ref.heading,
             source_ref.page_start,

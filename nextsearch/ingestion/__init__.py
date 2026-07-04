@@ -9,6 +9,7 @@ from nextsearch.ingestion.models import (
 from nextsearch.ingestion.pipeline import (
     extract_pdf_to_knowledge_graph,
     extract_pdf_to_markdown,
+    ingest_pdf_to_corpus_graph,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "PageContent",
     "extract_pdf_to_knowledge_graph",
     "extract_pdf_to_markdown",
+    "ingest_pdf_to_corpus_graph",
 ]

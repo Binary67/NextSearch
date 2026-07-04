@@ -82,9 +82,20 @@ RelationType = Literal[
 NodeMergeDecisionType = Literal["same", "different", "uncertain"]
 
 
+class ExtractedSourceRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    section_id: str
+    heading: str
+    page_start: int | None = None
+    page_end: int | None = None
+    quote: str = Field(min_length=1)
+
+
 class SourceRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    document_id: str
     section_id: str
     heading: str
     page_start: int | None = None
@@ -105,7 +116,7 @@ class ExtractedNode(BaseModel):
     type: EntityType
     name: str = Field(min_length=1)
     description: str | None = None
-    source_refs: list[SourceRef] = Field(min_length=1)
+    source_refs: list[ExtractedSourceRef] = Field(min_length=1)
 
 
 class ExtractedEdge(BaseModel):
@@ -117,7 +128,7 @@ class ExtractedEdge(BaseModel):
     raw_relation: str = Field(min_length=1)
     description: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
-    source_refs: list[SourceRef] = Field(min_length=1)
+    source_refs: list[ExtractedSourceRef] = Field(min_length=1)
 
 
 class SectionGraphExtraction(BaseModel):
@@ -155,6 +166,8 @@ class KnowledgeGraph(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 1
+    document_id: str
+    content_hash: str
     source_path: str
     page_count: int
     nodes: list[GraphNode]

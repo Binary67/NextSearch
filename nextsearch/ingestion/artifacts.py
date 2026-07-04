@@ -32,6 +32,10 @@ def write_graph_artifact(graph: KnowledgeGraph, output_dir: Path) -> None:
     )
 
 
+def read_graph_artifact(graph_path: Path) -> KnowledgeGraph:
+    return KnowledgeGraph.model_validate_json(graph_path.read_text(encoding="utf-8"))
+
+
 def write_graph_merge_decisions_artifact(
     result: GraphDedupeResult,
     output_dir: Path,

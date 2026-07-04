@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 from difflib import SequenceMatcher
 from itertools import combinations
-from typing import NamedTuple
+from typing import Collection, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -85,8 +85,37 @@ def dedupe_knowledge_graph(
     graph: KnowledgeGraph,
     llm: LLMService,
 ) -> GraphDedupeResult:
+    return _dedupe_knowledge_graph(
+        graph=graph,
+        llm=llm,
+        required_node_ids=None,
+    )
+
+
+def dedupe_knowledge_graph_incremental(
+    graph: KnowledgeGraph,
+    llm: LLMService,
+    *,
+    incoming_node_ids: Collection[str],
+) -> GraphDedupeResult:
+    return _dedupe_knowledge_graph(
+        graph=graph,
+        llm=llm,
+        required_node_ids=set(incoming_node_ids),
+    )
+
+
+def _dedupe_knowledge_graph(
+    *,
+    graph: KnowledgeGraph,
+    llm: LLMService,
+    required_node_ids: set[str] | None,
+) -> GraphDedupeResult:
     node_by_id = {node.id: node for node in graph.nodes}
-    candidates = _generate_merge_candidates(graph)
+    candidates = _generate_merge_candidates(
+        graph,
+        required_node_ids=required_node_ids,
+    )
     union_find = _UnionFind(list(node_by_id))
     decisions: list[GraphNodeMergeDecision] = []
 
@@ -139,7 +168,11 @@ def dedupe_knowledge_graph(
     )
 
 
-def _generate_merge_candidates(graph: KnowledgeGraph) -> list[_MergeCandidate]:
+def _generate_merge_candidates(
+    graph: KnowledgeGraph,
+    *,
+    required_node_ids: set[str] | None = None,
+) -> list[_MergeCandidate]:
     nodes_by_type: dict[str, list[GraphNode]] = defaultdict(list)
     for node in graph.nodes:
         nodes_by_type[node.type].append(node)
@@ -148,6 +181,12 @@ def _generate_merge_candidates(graph: KnowledgeGraph) -> list[_MergeCandidate]:
     candidates: list[_MergeCandidate] = []
     for typed_nodes in nodes_by_type.values():
         for left, right in combinations(typed_nodes, 2):
+            if (
+                required_node_ids is not None
+                and left.id not in required_node_ids
+                and right.id not in required_node_ids
+            ):
+                continue
             reasons = _candidate_reasons(left, right, neighbor_ids)
             if reasons:
                 candidates.append(
@@ -471,6 +510,7 @@ def _merge_source_refs(
     merged = list(existing)
     seen = {
         (
+            source_ref.document_id,
             source_ref.section_id,
             source_ref.heading,
             source_ref.page_start,
@@ -481,6 +521,7 @@ def _merge_source_refs(
     }
     for source_ref in incoming:
         key = (
+            source_ref.document_id,
             source_ref.section_id,
             source_ref.heading,
             source_ref.page_start,

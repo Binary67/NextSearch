@@ -194,6 +194,8 @@ class KnowledgeGraphDedupeTests(unittest.TestCase):
 
 def _graph(nodes: list[GraphNode], edges: list[GraphEdge]) -> KnowledgeGraph:
     return KnowledgeGraph(
+        document_id="doc-1",
+        content_hash="hash-1",
         source_path="sample.pdf",
         page_count=1,
         nodes=nodes,
@@ -230,6 +232,7 @@ def _edge(
 
 def _source_ref(quote: str) -> SourceRef:
     return SourceRef(
+        document_id="doc-1",
         section_id="section-0001",
         heading="Overview",
         quote=quote,
