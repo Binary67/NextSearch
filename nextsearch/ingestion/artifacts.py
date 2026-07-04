@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from nextsearch.ingestion.graph.models import KnowledgeGraph
+from nextsearch.ingestion.graph.models import GraphDedupeResult, KnowledgeGraph
 from nextsearch.ingestion.models import MarkdownDocument
 
 
@@ -28,6 +28,24 @@ def write_graph_artifact(graph: KnowledgeGraph, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "graph.json").write_text(
         json.dumps(graph.model_dump(mode="json"), indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_graph_merge_decisions_artifact(
+    result: GraphDedupeResult,
+    output_dir: Path,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "node_id_replacements": result.node_id_replacements,
+        "merge_decisions": [
+            decision.model_dump(mode="json")
+            for decision in result.merge_decisions
+        ],
+    }
+    (output_dir / "graph_merge_decisions.json").write_text(
+        json.dumps(payload, indent=2) + "\n",
         encoding="utf-8",
     )
 

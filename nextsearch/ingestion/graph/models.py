@@ -79,6 +79,8 @@ RelationType = Literal[
     "happened_on",
 ]
 
+NodeMergeDecisionType = Literal["same", "different", "uncertain"]
+
 
 class SourceRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -131,6 +133,7 @@ class GraphNode(BaseModel):
     id: str
     type: EntityType
     name: str
+    aliases: list[str] = Field(default_factory=list)
     description: str | None = None
     source_refs: list[SourceRef] = Field(default_factory=list)
 
@@ -156,3 +159,21 @@ class KnowledgeGraph(BaseModel):
     page_count: int
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+
+
+class GraphNodeMergeDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_ids: list[str] = Field(min_length=2, max_length=2)
+    decision: NodeMergeDecisionType
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str | None = None
+    canonical_node_id: str | None = None
+
+
+class GraphDedupeResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    graph: KnowledgeGraph
+    merge_decisions: list[GraphNodeMergeDecision] = Field(default_factory=list)
+    node_id_replacements: dict[str, str] = Field(default_factory=dict)

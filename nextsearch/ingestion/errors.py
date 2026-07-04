@@ -12,3 +12,7 @@ class MarkdownExtractionError(IngestionError):
 
 class GraphExtractionError(IngestionError):
     """Raised when LLM knowledge graph extraction fails."""
+
+
+class GraphDedupeError(IngestionError):
+    """Raised when LLM knowledge graph dedupe fails."""
