@@ -61,6 +61,53 @@ class MarkdownSectionTests(unittest.TestCase):
             [(1, 1), (1, 1)],
         )
 
+    def test_split_oversized_section_recalculates_part_page_ranges(self) -> None:
+        document = _document(
+            "<!-- page: 1 -->\n"
+            "# Large Section\n\n"
+            "Page one detail.\n\n"
+            "<!-- page: 2 -->\n"
+            "Page two detail.\n\n"
+            "<!-- page: 3 -->\n"
+            "Page three detail.\n"
+        )
+
+        sections = split_markdown_into_sections(document, max_section_chars=60)
+
+        self.assertEqual(
+            [section.id for section in sections],
+            [
+                "section-0001-part-0001",
+                "section-0001-part-0002",
+                "section-0001-part-0003",
+            ],
+        )
+        self.assertEqual(
+            [(section.page_start, section.page_end) for section in sections],
+            [(1, 1), (2, 2), (3, 3)],
+        )
+
+    def test_hard_split_line_keeps_original_page_range(self) -> None:
+        document = _document(
+            "<!-- page: 4 -->\n\n"
+            "AAAAAAAAAAAAAAAAAAAAAAAAA\n"
+        )
+
+        sections = split_markdown_into_sections(document, max_section_chars=20)
+
+        self.assertEqual(
+            [section.id for section in sections],
+            [
+                "section-0001-part-0001",
+                "section-0001-part-0002",
+                "section-0001-part-0003",
+            ],
+        )
+        self.assertEqual(
+            [(section.page_start, section.page_end) for section in sections],
+            [(4, 4), (4, 4), (4, 4)],
+        )
+
 
 def _document(markdown: str) -> MarkdownDocument:
     return MarkdownDocument(

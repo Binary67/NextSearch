@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from nextsearch.ingestion.models import DocumentSection, MarkdownDocument
 
@@ -31,8 +31,9 @@ def split_markdown_into_sections(
     sections: list[DocumentSection] = []
 
     for index, draft in enumerate(drafts, start=1):
-        section = _draft_to_section(f"section-{index:04d}", draft)
-        sections.extend(_split_large_section(section, max_section_chars))
+        sections.extend(
+            _split_large_draft(f"section-{index:04d}", draft, max_section_chars)
+        )
 
     return sections
 
@@ -89,7 +90,7 @@ def _draft_to_section(section_id: str, draft: _SectionDraft) -> DocumentSection:
     page_numbers = [
         page_number for _, page_number in draft.lines if page_number is not None
     ]
-    text = "\n".join(line for line, _ in draft.lines).strip()
+    text = _draft_text(draft)
     return DocumentSection(
         id=section_id,
         heading=draft.heading,
@@ -100,30 +101,53 @@ def _draft_to_section(section_id: str, draft: _SectionDraft) -> DocumentSection:
     )
 
 
-def _split_large_section(
-    section: DocumentSection,
+def _split_large_draft(
+    section_id: str,
+    draft: _SectionDraft,
     max_section_chars: int,
 ) -> list[DocumentSection]:
-    if len(section.text) <= max_section_chars:
-        return [section]
+    if len(_draft_text(draft)) <= max_section_chars:
+        return [_draft_to_section(section_id, draft)]
 
-    chunks: list[str] = []
-    current: list[str] = []
+    chunks = _split_lines_by_paragraph(draft.lines, max_section_chars)
+    if len(chunks) <= 1:
+        lines = chunks[0] if chunks else draft.lines
+        return [_draft_to_section(section_id, _draft_with_lines(draft, lines))]
+
+    return [
+        _draft_to_section(
+            f"{section_id}-part-{index:04d}",
+            _draft_with_lines(draft, chunk),
+        )
+        for index, chunk in enumerate(chunks, start=1)
+    ]
+
+
+def _split_lines_by_paragraph(
+    lines: list[tuple[str, int | None]],
+    max_section_chars: int,
+) -> list[list[tuple[str, int | None]]]:
+    chunks: list[list[tuple[str, int | None]]] = []
+    current: list[list[tuple[str, int | None]]] = []
     current_chars = 0
 
-    for paragraph in _paragraphs(section.text):
-        paragraph_chars = len(paragraph)
+    for paragraph in _paragraph_line_groups(lines):
+        paragraph_text = _lines_text(paragraph)
+        paragraph_chars = len(paragraph_text)
         if paragraph_chars > max_section_chars:
             if current:
-                chunks.append("\n\n".join(current))
+                chunks.append(_paragraphs_to_lines(current))
                 current = []
                 current_chars = 0
-            chunks.extend(_hard_split(paragraph, max_section_chars))
+            chunks.extend(_hard_split_lines(paragraph, max_section_chars))
             continue
 
         separator_chars = 2 if current else 0
-        if current and current_chars + separator_chars + paragraph_chars > max_section_chars:
-            chunks.append("\n\n".join(current))
+        if (
+            current
+            and current_chars + separator_chars + paragraph_chars > max_section_chars
+        ):
+            chunks.append(_paragraphs_to_lines(current))
             current = []
             current_chars = 0
 
@@ -131,19 +155,84 @@ def _split_large_section(
         current_chars += separator_chars + paragraph_chars
 
     if current:
-        chunks.append("\n\n".join(current))
+        chunks.append(_paragraphs_to_lines(current))
 
-    if len(chunks) <= 1:
-        return [replace(section, text=chunks[0] if chunks else section.text)]
-
-    return [
-        replace(section, id=f"{section.id}-part-{index:04d}", text=chunk)
-        for index, chunk in enumerate(chunks, start=1)
-    ]
+    return chunks
 
 
-def _paragraphs(text: str) -> list[str]:
-    return [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
+def _paragraph_line_groups(
+    lines: list[tuple[str, int | None]],
+) -> list[list[tuple[str, int | None]]]:
+    paragraphs: list[list[tuple[str, int | None]]] = []
+    current: list[tuple[str, int | None]] = []
+    for line, page_number in lines:
+        if line.strip():
+            current.append((line, page_number))
+        elif current:
+            paragraphs.append(current)
+            current = []
+
+    if current:
+        paragraphs.append(current)
+
+    return paragraphs
+
+
+def _paragraphs_to_lines(
+    paragraphs: list[list[tuple[str, int | None]]],
+) -> list[tuple[str, int | None]]:
+    lines: list[tuple[str, int | None]] = []
+    for index, paragraph in enumerate(paragraphs):
+        if index:
+            lines.append(("", None))
+        lines.extend(paragraph)
+    return lines
+
+
+def _hard_split_lines(
+    lines: list[tuple[str, int | None]],
+    max_chars: int,
+) -> list[list[tuple[str, int | None]]]:
+    chunks: list[list[tuple[str, int | None]]] = []
+    current: list[tuple[str, int | None]] = []
+    current_chars = 0
+
+    for line, page_number in lines:
+        for part in _hard_split(line, max_chars):
+            part_chars = len(part)
+            separator_chars = 1 if current else 0
+            if current and current_chars + separator_chars + part_chars > max_chars:
+                chunks.append(current)
+                current = []
+                current_chars = 0
+                separator_chars = 0
+
+            current.append((part, page_number))
+            current_chars += separator_chars + part_chars
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
+def _draft_with_lines(
+    draft: _SectionDraft,
+    lines: list[tuple[str, int | None]],
+) -> _SectionDraft:
+    return _SectionDraft(
+        heading=draft.heading,
+        heading_path=draft.heading_path,
+        lines=lines,
+    )
+
+
+def _draft_text(draft: _SectionDraft) -> str:
+    return _lines_text(draft.lines)
+
+
+def _lines_text(lines: list[tuple[str, int | None]]) -> str:
+    return "\n".join(line for line, _ in lines).strip()
 
 
 def _hard_split(text: str, max_chars: int) -> list[str]:
