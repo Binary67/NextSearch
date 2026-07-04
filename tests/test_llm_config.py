@@ -80,6 +80,26 @@ class LLMConfigTests(unittest.TestCase):
         with self.assertRaises(LLMConfigError):
             config.provider_name_for_role("summarization")
 
+    def test_env_file_overrides_existing_environment_value(self) -> None:
+        name = "NEXTSEARCH_TEST_DOTENV_OVERRIDE"
+        old_value = os.environ.get(name)
+        os.environ[name] = "from-environment"
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                config_path = Path(tmpdir) / "llm.toml"
+                env_path = Path(tmpdir) / ".env"
+                config_path.write_text(VALID_CONFIG)
+                env_path.write_text(f"{name}=from-dotenv\n")
+
+                load_llm_config(config_path, env_path=env_path)
+
+            self.assertEqual(os.environ[name], "from-dotenv")
+        finally:
+            if old_value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = old_value
+
 
 if __name__ == "__main__":
     unittest.main()

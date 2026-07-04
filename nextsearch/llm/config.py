@@ -66,7 +66,7 @@ def load_llm_config(
     env_path: str | Path | None = ".env",
 ) -> LLMConfig:
     if env_path is not None:
-        load_dotenv(dotenv_path=env_path, override=False)
+        load_dotenv(dotenv_path=env_path, override=True)
 
     path = Path(config_path)
     try:
