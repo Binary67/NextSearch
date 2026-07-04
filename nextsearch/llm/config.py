@@ -3,17 +3,17 @@ from __future__ import annotations
 import os
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nextsearch.llm.types import LLMConfigError
 
 ModelTier = Literal["fast", "flagship"]
 
 
-class AzureConfig(BaseModel):
+class AzureOpenAIV1Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: Literal["azure_openai_v1"]
@@ -32,9 +32,28 @@ class ModelConfig(BaseModel):
 class LLMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    azure: AzureConfig
+    default_provider: str
+    providers: dict[str, AzureOpenAIV1Config]
     models: ModelConfig
     tasks: dict[str, ModelTier] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_default_provider(self) -> Self:
+        if self.default_provider not in self.providers:
+            raise ValueError(
+                f"Default LLM provider {self.default_provider!r} is not configured"
+            )
+        return self
+
+    def provider_config(
+        self,
+        provider_name: str | None = None,
+    ) -> AzureOpenAIV1Config:
+        name = provider_name or self.default_provider
+        try:
+            return self.providers[name]
+        except KeyError as exc:
+            raise LLMConfigError(f"LLM provider {name!r} is not configured") from exc
 
     def text_model_for_task(self, task: str) -> str:
         try:

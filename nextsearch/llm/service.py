@@ -5,12 +5,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from nextsearch.llm.config import AzureConfig, LLMConfig, load_llm_config, require_env
-from nextsearch.llm.providers.azure_openai_v1 import AzureOpenAIV1Provider
+from nextsearch.llm.config import LLMConfig, load_llm_config
+from nextsearch.llm.factory import build_llm_provider
 from nextsearch.llm.types import (
     EmbeddingRequest,
     EmbeddingResponse,
-    LLMConfigError,
     LLMMessage,
     LLMProvider,
     LLMResponse,
@@ -49,7 +48,7 @@ class LLMService:
         max_output_tokens: int | None = None,
     ) -> LLMResponse:
         model = self._config.text_model_for_task(role)
-        provider = self._azure_provider()
+        provider = self._provider()
         request = TextGenerationRequest(
             role=role,
             model=model,
@@ -69,7 +68,7 @@ class LLMService:
         max_output_tokens: int | None = None,
     ) -> ResponseModelT:
         model = self._config.text_model_for_task(role)
-        provider = self._azure_provider()
+        provider = self._provider()
         request = StructuredGenerationRequest(
             role=role,
             model=model,
@@ -90,28 +89,23 @@ class LLMService:
             ) from exc
 
     def embed(self, *, role: str, texts: Sequence[str]) -> EmbeddingResponse:
-        provider = self._azure_provider()
+        provider = self._provider()
+        provider_config = self._config.provider_config()
         request = EmbeddingRequest(
             role=role,
-            model=self._config.azure.embedding_model,
+            model=provider_config.embedding_model,
             texts=texts,
         )
         return provider.embed(request)
 
-    def _azure_provider(self) -> LLMProvider:
-        provider = self._providers.get("azure")
+    def _provider(self, provider_name: str | None = None) -> LLMProvider:
+        name = provider_name or self._config.default_provider
+        provider = self._providers.get(name)
         if provider is None:
-            provider = self._build_provider(self._config.azure)
-            self._providers["azure"] = provider
+            provider = build_llm_provider(
+                name=name,
+                provider_config=self._config.provider_config(name),
+            )
+            self._providers[name] = provider
 
         return provider
-
-    def _build_provider(self, provider_config: AzureConfig) -> LLMProvider:
-        if provider_config.provider == "azure_openai_v1":
-            return AzureOpenAIV1Provider(
-                name="azure",
-                base_url=require_env(provider_config.base_url_env),
-                api_key=require_env(provider_config.api_key_env),
-            )
-
-        raise LLMConfigError(f"Unsupported LLM provider {provider_config.provider!r}")

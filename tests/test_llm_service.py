@@ -47,11 +47,14 @@ class FakeProvider:
 def config() -> LLMConfig:
     return LLMConfig.model_validate(
         {
-            "azure": {
-                "provider": "azure_openai_v1",
-                "base_url_env": "AZURE_OPENAI_BASE_URL",
-                "api_key_env": "AZURE_OPENAI_API_KEY",
-                "embedding_model": "nextsearch-embed",
+            "default_provider": "azure",
+            "providers": {
+                "azure": {
+                    "provider": "azure_openai_v1",
+                    "base_url_env": "AZURE_OPENAI_BASE_URL",
+                    "api_key_env": "AZURE_OPENAI_API_KEY",
+                    "embedding_model": "nextsearch-embed",
+                },
             },
             "models": {
                 "fast": "nextsearch-fast",

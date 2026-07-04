@@ -8,7 +8,10 @@ from nextsearch.llm.types import LLMConfigError
 
 
 VALID_CONFIG = """
-[llm.azure]
+[llm]
+default_provider = "azure"
+
+[llm.providers.azure]
 provider = "azure_openai_v1"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
@@ -23,7 +26,10 @@ summarization = "fast"
 """
 
 EXTRACTION_CONFIG = """
-[llm.azure]
+[llm]
+default_provider = "azure"
+
+[llm.providers.azure]
 provider = "azure_openai_v1"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
@@ -49,7 +55,7 @@ class LLMConfigTests(unittest.TestCase):
 
         self.assertIsInstance(config, LLMConfig)
         self.assertEqual(config.text_model_for_task("summarization"), "nextsearch-chat")
-        self.assertEqual(config.azure.embedding_model, "nextsearch-embed")
+        self.assertEqual(config.provider_config().embedding_model, "nextsearch-embed")
 
     def test_task_referencing_unknown_model_tier_fails_validation(self) -> None:
         config = VALID_CONFIG.replace(
@@ -76,11 +82,14 @@ class LLMConfigTests(unittest.TestCase):
     def test_missing_task_raises_config_error(self) -> None:
         config = LLMConfig.model_validate(
             {
-                "azure": {
-                    "provider": "azure_openai_v1",
-                    "base_url_env": "AZURE_OPENAI_BASE_URL",
-                    "api_key_env": "AZURE_OPENAI_API_KEY",
-                    "embedding_model": "nextsearch-embed",
+                "default_provider": "azure",
+                "providers": {
+                    "azure": {
+                        "provider": "azure_openai_v1",
+                        "base_url_env": "AZURE_OPENAI_BASE_URL",
+                        "api_key_env": "AZURE_OPENAI_API_KEY",
+                        "embedding_model": "nextsearch-embed",
+                    },
                 },
                 "models": {
                     "fast": "nextsearch-chat",
@@ -92,6 +101,53 @@ class LLMConfigTests(unittest.TestCase):
 
         with self.assertRaises(LLMConfigError):
             config.text_model_for_task("summarization")
+
+    def test_default_provider_must_be_configured(self) -> None:
+        config = VALID_CONFIG.replace(
+            'default_provider = "azure"',
+            'default_provider = "missing"',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "llm.toml"
+            config_path.write_text(config)
+
+            with self.assertRaises(LLMConfigError):
+                load_llm_config(config_path, env_path=None)
+
+    def test_unsupported_provider_type_fails_validation(self) -> None:
+        config = VALID_CONFIG.replace(
+            'provider = "azure_openai_v1"',
+            'provider = "unsupported_provider"',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "llm.toml"
+            config_path.write_text(config)
+
+            with self.assertRaises(LLMConfigError):
+                load_llm_config(config_path, env_path=None)
+
+    def test_unknown_provider_lookup_raises_config_error(self) -> None:
+        config = LLMConfig.model_validate(
+            {
+                "default_provider": "azure",
+                "providers": {
+                    "azure": {
+                        "provider": "azure_openai_v1",
+                        "base_url_env": "AZURE_OPENAI_BASE_URL",
+                        "api_key_env": "AZURE_OPENAI_API_KEY",
+                        "embedding_model": "nextsearch-embed",
+                    },
+                },
+                "models": {
+                    "fast": "nextsearch-chat",
+                    "flagship": "nextsearch-flagship",
+                },
+                "tasks": {},
+            }
+        )
+
+        with self.assertRaises(LLMConfigError):
+            config.provider_config("missing")
 
     def test_tasks_can_use_different_model_tiers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

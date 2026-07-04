@@ -1,4 +1,7 @@
-[llm.azure]
+[llm]
+default_provider = "azure"
+
+[llm.providers.azure]
 provider = "azure_openai_v1"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
@@ -13,4 +16,5 @@ summarization = "fast"
 query_planning = "fast"
 markdown_extraction = "fast"
 graph_extraction = "flagship"
+graph_search_decision = "fast"
 answer_generation = "flagship"

@@ -13,7 +13,7 @@ then answer with provenance.
 
 Implemented today:
 
-- Provider-neutral LLM service with Azure OpenAI v1 support.
+- Provider-registry LLM service with Azure OpenAI v1 support.
 - TOML and `.env` based LLM configuration.
 - Text extraction from PDFs with selectable text.
 - LLM-assisted PDF-to-Markdown extraction with required page anchors.
@@ -25,17 +25,17 @@ Implemented today:
 - Incremental PDF ingestion into a corpus-level graph.
 - JSON artifacts for Markdown extraction, graph extraction, and graph merge
   decisions.
+- JSON-backed query-time graph retrieval and source evidence lookup.
+- Provider-neutral LangGraph query agent with a controlled graph-search loop.
 - Unit tests covering LLM config/service/provider behavior, PDF ingestion,
   Markdown extraction, section splitting, graph extraction, graph dedupe, and
-  graph merge behavior.
+  graph merge behavior, retrieval, and query-agent orchestration.
 
 Not implemented yet:
 
 - A user-facing app, API server, or production CLI.
-- Query-time retrieval.
 - Vector index or durable query-time document store.
-- Agentic source inspection and answer generation.
-- Citation rendering for final answers.
+- Citation rendering in a user-facing interface.
 - OCR for scanned or image-only PDFs.
 
 ## Requirements
@@ -70,9 +70,11 @@ include:
 - `graph_extraction`
 - `summarization`
 - `query_planning`
+- `graph_search_decision`
 - `answer_generation`
 
-Only the extraction-oriented paths are implemented today.
+Providers are configured under `[llm.providers.*]`, with `default_provider`
+selecting the provider used by the current task routing.
 
 ## Usage
 
@@ -207,6 +209,30 @@ Corpus ingestion writes per-document artifacts under `artifacts/documents/` and
 the merged corpus graph under `artifacts/corpus/`. When a matching document
 hash is already present, the existing corpus graph is returned unchanged.
 
+### Query A Corpus Graph
+
+```python
+from pathlib import Path
+
+from nextsearch.agent import build_query_agent
+from nextsearch.llm import LLMService
+from nextsearch.retrieval import JsonGraphStore, MarkdownArtifactSourceStore
+
+llm = LLMService.from_config_file()
+artifacts_root = Path("artifacts")
+
+agent = build_query_agent(
+    llm=llm,
+    graph_store=JsonGraphStore.from_artifact_dir(artifacts_root / "corpus"),
+    source_store=MarkdownArtifactSourceStore(artifacts_root),
+)
+
+result = agent.invoke({"query": "What risks are related to Project Atlas?"})
+
+print(result["answer"])
+print(result["citations"])
+```
+
 ## Project Model
 
 The source document store should remain the source of truth.
@@ -227,7 +253,7 @@ User query
   -> answer with citations
 ```
 
-The implemented work is currently focused on the ingestion side of that model:
+The implemented ingestion flow is:
 
 ```text
 PDF
@@ -263,8 +289,7 @@ Project Atlas
 ```
 
 When a user asks about `Project Atlas`, the graph can surface related entities
-and documents. A future retrieval agent should then inspect the strongest source
-evidence before answering.
+and documents. The query agent then inspects source evidence before answering.
 
 ## Evidence And Provenance
 
@@ -307,12 +332,14 @@ uv run python -m unittest tests.test_ingestion_markdown
 uv run python -m unittest tests.test_ingestion_sections
 uv run python -m unittest tests.test_llm_config
 uv run python -m unittest tests.test_llm_service
+uv run python -m unittest tests.test_retrieval
+uv run python -m unittest tests.test_agent
 ```
 
 Use the full suite command when you want broader coverage:
 
 ```bash
-uv run python -m unittest
+uv run python -m unittest discover -s tests -p 'test_*.py'
 ```
 
 ## Roadmap
@@ -325,10 +352,9 @@ Near-term:
 
 Next:
 
-- Implement query-time retrieval over metadata, summaries, and sections.
-- Add graph lookup and graph expansion for relationship-aware questions.
 - Rank candidate sources before source inspection.
-- Add answer generation with grounded citations.
+- Add retrieval over metadata, summaries, embeddings, and sections.
+- Improve ranking and citation rendering for grounded answers.
 
 Later:
 
