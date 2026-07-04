@@ -8,3 +8,7 @@ class PDFExtractionError(IngestionError):
 
 class MarkdownExtractionError(IngestionError):
     """Raised when LLM Markdown extraction fails."""
+
+
+class GraphExtractionError(IngestionError):
+    """Raised when LLM knowledge graph extraction fails."""

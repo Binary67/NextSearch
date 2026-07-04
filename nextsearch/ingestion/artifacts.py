@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from nextsearch.ingestion.graph.models import KnowledgeGraph
 from nextsearch.ingestion.models import MarkdownDocument
 
 
@@ -21,6 +22,14 @@ def write_markdown_artifacts(document: MarkdownDocument, output_dir: Path) -> No
     for index, batch in enumerate(document.batches, start=1):
         batch_path = batches_dir / f"batch-{index:04d}.output.md"
         batch_path.write_text(batch.markdown, encoding="utf-8")
+
+
+def write_graph_artifact(graph: KnowledgeGraph, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "graph.json").write_text(
+        json.dumps(graph.model_dump(mode="json"), indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _manifest(document: MarkdownDocument) -> dict[str, Any]:

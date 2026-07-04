@@ -25,3 +25,13 @@ class MarkdownDocument:
     source_path: Path
     page_count: int
     batches: tuple[MarkdownBatch, ...]
+
+
+@dataclass(frozen=True)
+class DocumentSection:
+    id: str
+    heading: str
+    heading_path: tuple[str, ...]
+    page_start: int | None
+    page_end: int | None
+    text: str
