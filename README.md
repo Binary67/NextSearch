@@ -1,84 +1,257 @@
 # NextSearch
 
-NextSearch is an early-stage project for exploring a search system that combines
-agentic document search with an optional knowledge graph over user-provided
-documents and information.
+NextSearch is an early-stage Python project for building a
+knowledge-grounded search assistant over private, user-provided documents.
 
-The goal is not to build a classic chunk-only RAG system. The intended direction
-is a system where an agent can search metadata, summaries, source references,
-and graph relationships, then selectively inspect the original source documents
-or relevant sections before answering.
+The long-term goal is not a classic chunk-only RAG system. The intended system
+uses documents as the source of truth, while metadata, Markdown structure,
+summaries, embeddings, and knowledge graph facts act as navigation aids. An
+agent should search those aids, inspect the strongest source material, and only
+then answer with provenance.
 
-## Project Objective
+## Current Status
 
-Build a knowledge-grounded search assistant for private/user-provided documents.
+Implemented today:
 
-The assistant should be able to:
+- Provider-neutral LLM service with Azure OpenAI v1 support.
+- TOML and `.env` based LLM configuration.
+- Text extraction from PDFs with selectable text.
+- LLM-assisted PDF-to-Markdown extraction with required page anchors.
+- Markdown batch stitching and artifact writing.
+- Markdown section splitting with page range tracking.
+- Knowledge graph extraction from Markdown sections.
+- Graph node and edge models with source references.
+- LLM-adjudicated graph node deduplication.
+- Incremental PDF ingestion into a corpus-level graph.
+- JSON artifacts for Markdown extraction, graph extraction, and graph merge
+  decisions.
+- Unit tests covering LLM config/service/provider behavior, PDF ingestion,
+  Markdown extraction, section splitting, graph extraction, graph dedupe, and
+  graph merge behavior.
 
-- Understand a user's question.
-- Find relevant documents, entities, concepts, and relationships.
-- Use metadata and semantic search to identify likely sources.
-- Use a knowledge graph to discover connected context when relationship-aware
-  reasoning is useful.
-- Read the original source document or precise source section before making a
-  claim.
-- Answer with clear provenance and citations back to the source material.
+Not implemented yet:
 
-## Core Mental Model
+- A user-facing app, API server, or production CLI.
+- Query-time retrieval.
+- Vector index or durable query-time document store.
+- Agentic source inspection and answer generation.
+- Citation rendering for final answers.
+- OCR for scanned or image-only PDFs.
 
-The source document store is the source of truth.
+## Requirements
 
-Indexes, embeddings, metadata, summaries, and graph nodes are navigation aids.
+- Python 3.13 or newer.
+- `uv` for dependency management.
+- Azure OpenAI credentials for LLM-backed extraction.
+
+Install dependencies:
+
+```bash
+uv sync
+```
+
+Configure Azure OpenAI credentials:
+
+```bash
+cp .env.example .env
+```
+
+Then set:
+
+```text
+AZURE_OPENAI_BASE_URL=https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1/
+AZURE_OPENAI_API_KEY=...
+```
+
+Model routing lives in `config/llm.toml`. The configured task names currently
+include:
+
+- `markdown_extraction`
+- `graph_extraction`
+- `summarization`
+- `query_planning`
+- `answer_generation`
+
+Only the extraction-oriented paths are implemented today.
+
+## Usage
+
+There is no supported command-line entry point yet. Use the package functions
+directly from Python.
+
+### Extract Markdown From A PDF
+
+```python
+from pathlib import Path
+
+from nextsearch.ingestion import extract_pdf_to_markdown
+from nextsearch.llm import LLMService
+
+llm = LLMService.from_config_file()
+
+document = extract_pdf_to_markdown(
+    Path("documents/source.pdf"),
+    llm,
+    output_dir=Path("artifacts/source"),
+)
+
+print(document.markdown)
+```
+
+When `output_dir` is provided, the pipeline writes:
+
+```text
+artifacts/source/
+  document.md
+  manifest.json
+  batches/
+    batch-0001.output.md
+```
+
+PDF limitations:
+
+- PDFs must contain extractable text.
+- Empty pages and scanned/image-only pages are rejected.
+
+### Split Markdown Into Sections
+
+```python
+from nextsearch.ingestion.markdown import split_markdown_into_sections
+
+sections = split_markdown_into_sections(document)
+
+for section in sections:
+    print(section.id, section.heading, section.page_start, section.page_end)
+```
+
+Sections preserve heading context and page ranges where page anchors are
+available.
+
+### Extract A Knowledge Graph From Markdown
+
+```python
+from nextsearch.ingestion.graph import extract_knowledge_graph_from_markdown
+
+graph = extract_knowledge_graph_from_markdown(
+    document,
+    llm,
+    document_id="source",
+    content_hash="replace-with-real-content-hash",
+)
+
+print(graph.model_dump(mode="json"))
+```
+
+The graph contains:
+
+- Nodes for extracted entities and concepts.
+- Edges for typed relationships.
+- Source references with document ID, section ID, heading, page range, and quote.
+
+### Extract A Knowledge Graph From A PDF
+
+```python
+from pathlib import Path
+
+from nextsearch.ingestion import extract_pdf_to_knowledge_graph
+from nextsearch.llm import LLMService
+
+llm = LLMService.from_config_file()
+
+graph = extract_pdf_to_knowledge_graph(
+    Path("documents/source.pdf"),
+    llm,
+    document_id="source",
+    output_dir=Path("artifacts/source"),
+)
+```
+
+This writes `graph.json` alongside the Markdown artifacts when `output_dir` is
+provided. The graph `content_hash` is computed from the PDF bytes.
+
+### Dedupe Graph Nodes
+
+```python
+from nextsearch.ingestion.graph.dedupe import dedupe_knowledge_graph
+
+result = dedupe_knowledge_graph(graph, llm)
+
+deduped_graph = result.graph
+node_replacements = result.node_id_replacements
+```
+
+Graph dedupe generates candidate node pairs using deterministic name and
+neighbor heuristics, then asks the configured LLM to adjudicate whether each
+candidate refers to the same real-world entity.
+
+### Ingest A PDF Into A Corpus Graph
+
+```python
+from pathlib import Path
+
+from nextsearch.ingestion import ingest_pdf_to_corpus_graph
+from nextsearch.llm import LLMService
+
+llm = LLMService.from_config_file()
+
+corpus_graph = ingest_pdf_to_corpus_graph(
+    pdf_path=Path("documents/source.pdf"),
+    document_id="source",
+    llm=llm,
+    corpus_graph=None,
+    output_dir=Path("artifacts"),
+)
+```
+
+Corpus ingestion writes per-document artifacts under `artifacts/documents/` and
+the merged corpus graph under `artifacts/corpus/`. When a matching document
+hash is already present, the existing corpus graph is returned unchanged.
+
+## Project Model
+
+The source document store should remain the source of truth.
+
+Indexes, summaries, embeddings, metadata, and graph facts are retrieval aids.
 They help the agent decide what to inspect, but they should not replace source
 verification.
+
+Target query flow:
 
 ```text
 User query
   -> understand intent and key entities/concepts
-  -> search metadata / summaries / embeddings
-  -> optionally search knowledge graph nodes and relationships
+  -> search metadata, summaries, and embeddings
+  -> optionally search graph nodes and relationships
   -> rank candidate documents, sections, and evidence spans
-  -> agent reads selected source material
+  -> inspect selected source material
   -> answer with citations
 ```
 
-## Agentic Search
-
-In this project, agentic search means retrieval controlled by an agent rather
-than a single fixed retrieval step.
-
-Instead of:
+The implemented work is currently focused on the ingestion side of that model:
 
 ```text
-query -> vector search over chunks -> top chunks -> answer
+PDF
+  -> text extraction
+  -> Markdown with page anchors
+  -> addressable sections
+  -> graph extraction with source references
+  -> optional graph dedupe
 ```
-
-the target flow is closer to:
-
-```text
-query
-  -> plan what information is needed
-  -> search document metadata and summaries
-  -> inspect relevant sections or full documents
-  -> search again if evidence is incomplete
-  -> compare sources
-  -> answer with citations
-```
-
-Agentic search can still use embeddings, chunking, summaries, and indexes, but
-the agent decides which tools to use and when enough evidence has been gathered.
 
 ## Knowledge Graph Role
 
 The knowledge graph should guide search, not replace document reading.
 
-The graph can contain:
+Graph nodes can represent entities and concepts such as people, organizations,
+locations, projects, products, systems, documents, requirements, risks, events,
+metrics, and dates.
 
-- Nodes for entities, concepts, documents, projects, people, organizations,
-  policies, risks, requirements, and events.
-- Edges for relationships such as `depends_on`, `owned_by`, `mentioned_in`,
-  `causes`, `contradicts`, `supports`, `impacts`, or `related_to`.
-- Provenance links from every node or edge back to source evidence.
+Graph edges can represent relationships such as `depends_on`, `owned_by`,
+`mentions`, `causes`, `contradicts`, `supports`, `impacts`,
+`has_requirement`, or `has_risk`.
+
+Every node and edge should carry source references so graph-derived claims can
+be traced back to document evidence.
 
 Example:
 
@@ -86,24 +259,18 @@ Example:
 Project Atlas
   -> depends_on -> Vendor A
   -> has_risk -> Data residency issue
-  -> mentioned_in -> Doc 12, Doc 19
+  -> mentions -> Doc 12, Doc 19
 ```
 
 When a user asks about `Project Atlas`, the graph can surface related entities
-and documents. The agent should then inspect the strongest source evidence
-before answering.
+and documents. A future retrieval agent should then inspect the strongest source
+evidence before answering.
 
-The graph should not cause the system to blindly read every connected document.
-Candidate sources should be ranked by relevance, relationship type, confidence,
-recency, authority, permissions, and source quality.
+## Evidence And Provenance
 
-## Evidence Spans
-
-The system will likely need smaller addressable units inside documents, but not
-only for classic chunk-based RAG.
-
-Smaller units are needed so graph facts and answers can point back to precise
-source evidence.
+Current source references attach graph facts to Markdown sections and page
+ranges. The long-term direction is to support smaller evidence spans where
+needed.
 
 Possible hierarchy:
 
@@ -115,7 +282,7 @@ Document
   -> evidence spans
 ```
 
-Example:
+Example target reference:
 
 ```text
 Document: contract_2026.pdf
@@ -124,150 +291,48 @@ Paragraph: 3
 Text span: character 18320-18790
 
 Extracted edge:
-Vendor A -> stores_data_in -> Singapore
+Vendor A -> located_in -> Singapore
 
 Evidence:
 contract_2026.pdf, section 4.2, paragraph 3
 ```
 
-These spans are evidence anchors. They let the agent jump to the right part of a
-document, verify extracted graph facts, and cite claims.
+## Tests
 
-## Suggested Architecture
+Run targeted tests with `unittest`:
 
-One ingestion pipeline should produce multiple derived indexes from the same
-canonical document store.
-
-```text
-User documents
-  -> text extraction
-  -> canonical document store
-  -> document metadata
-  -> document and section summaries
-  -> document / section / metadata embeddings
-  -> evidence spans
-  -> entity and relationship extraction
-  -> knowledge graph
+```bash
+uv run python -m unittest tests.test_ingestion_pdf
+uv run python -m unittest tests.test_ingestion_markdown
+uv run python -m unittest tests.test_ingestion_sections
+uv run python -m unittest tests.test_llm_config
+uv run python -m unittest tests.test_llm_service
 ```
 
-At query time:
+Use the full suite command when you want broader coverage:
 
-```text
-User query
-  -> agent decides retrieval strategy
-  -> metadata / vector search
-  -> optional graph lookup and graph expansion
-  -> candidate source ranking
-  -> source reading and verification
-  -> answer generation with citations
+```bash
+uv run python -m unittest
 ```
 
-## Suggested Data Model
+## Roadmap
 
-Initial conceptual tables or collections:
+Near-term:
 
-```text
-documents
-- id
-- title
-- file_type
-- source_path
-- created_at
-- full_text
-- metadata
-- summary
+- Add durable storage for documents, Markdown, sections, graph data, and
+  extraction metadata.
+- Add embeddings for documents, sections, or metadata.
 
-document_sections
-- id
-- document_id
-- heading
-- page_start
-- page_end
-- text
-- embedding
+Next:
 
-evidence_spans
-- id
-- document_id
-- section_id
-- page
-- paragraph_index
-- char_start
-- char_end
-- text
+- Implement query-time retrieval over metadata, summaries, and sections.
+- Add graph lookup and graph expansion for relationship-aware questions.
+- Rank candidate sources before source inspection.
+- Add answer generation with grounded citations.
 
-graph_nodes
-- id
-- type
-- name
-- description
-- source_span_ids
-
-graph_edges
-- id
-- source_node_id
-- target_node_id
-- relation_type
-- confidence
-- source_span_ids
-```
-
-## Design Principles
-
-- Keep source documents as the source of truth.
-- Treat metadata, summaries, embeddings, and graph facts as retrieval aids.
-- Every graph node and edge should have provenance.
-- Prefer selective source reading over reading every connected document.
-- Start with agentic document search first.
-- Add the knowledge graph when relationship-heavy questions become important.
-- Keep the first implementation small and directly testable.
-
-## To Do
-
-### Phase 0: Product and Data Design
-
-- Define the first target document types.
-- Define the canonical document model.
-- Decide what counts as a document, section, paragraph, and evidence span.
-- Decide what metadata should be generated for each document.
-- Decide whether citations should point to pages, paragraphs, character spans,
-  or all of them.
-
-### Phase 1: Agentic Document Search MVP
-
-- Add document ingestion.
-- Extract full text from uploaded or local documents.
-- Generate document-level metadata and summaries.
-- Split documents into addressable sections and evidence spans.
-- Add embeddings for documents, sections, and/or metadata.
-- Implement query-time retrieval over metadata and summaries.
-- Let the agent inspect selected source sections or full documents.
-- Return answers with citations.
-
-### Phase 2: Knowledge Graph Prototype
-
-- Extract entities from documents and evidence spans.
-- Extract relationships between entities.
-- Store graph nodes and edges with confidence scores.
-- Attach source evidence spans to every node and edge.
-- Implement graph lookup from a user query.
-- Implement graph expansion from matched nodes to related nodes and documents.
-- Rank graph-connected source documents before agent inspection.
-
-### Phase 3: Hybrid Retrieval
-
-- Combine vector search, metadata search, and graph lookup.
-- Let the agent choose the retrieval strategy based on question type.
-- Support relationship-aware questions across multiple documents.
-- Support global corpus questions such as themes, risks, dependencies, or
-  contradictions.
-- Add evaluation cases for source accuracy and citation quality.
-
-### Phase 4: Hardening
+Later:
 
 - Add permission-aware retrieval.
-- Track extraction confidence and stale metadata.
 - Add re-indexing and graph refresh flows.
-- Add tests for ingestion, retrieval, graph provenance, and citation grounding.
-- Add observability for agent search steps and source usage.
-
+- Add evaluation cases for source accuracy and citation quality.
+- Add observability for search steps, extraction cost, and source usage.
