@@ -2,10 +2,10 @@
 provider = "azure_openai_v1"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
-embedding_model = "nextsearch-embed"
+embedding_model = "text-embedding-3-large"
 
 [llm.models]
-fast = "nextsearch-extraction"
+fast = "gpt-5.4-mini"
 flagship = "gpt-5.5"
 
 [llm.tasks]

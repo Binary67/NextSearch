@@ -80,6 +80,7 @@ RelationType = Literal[
 ]
 
 NodeMergeDecisionType = Literal["same", "different", "uncertain"]
+RelationTypeProposalStatus = Literal["proposed"]
 
 
 class ExtractedSourceRef(BaseModel):
@@ -190,3 +191,29 @@ class GraphDedupeResult(BaseModel):
     graph: KnowledgeGraph
     merge_decisions: list[GraphNodeMergeDecision] = Field(default_factory=list)
     node_id_replacements: dict[str, str] = Field(default_factory=dict)
+
+
+class RelationTypeProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposed_relation_type: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    closest_existing_relation_type: RelationType
+    raw_relations: list[str] = Field(min_length=1)
+    source_node_types: list[EntityType] = Field(min_length=1)
+    target_node_types: list[EntityType] = Field(min_length=1)
+    supporting_edge_ids: list[str] = Field(min_length=1)
+    evidence_count: int = Field(ge=1)
+    document_count: int = Field(ge=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+    status: RelationTypeProposalStatus = "proposed"
+    promotion_ready: bool = False
+    rationale: str | None = None
+
+
+class RelationTypeProposalSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = 1
+    document_id: str
+    content_hash: str
+    proposals: list[RelationTypeProposal] = Field(default_factory=list)

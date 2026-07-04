@@ -20,7 +20,7 @@ from nextsearch.ingestion.graph.models import (
     SourceRef,
 )
 from nextsearch.ingestion.pipeline import ingest_pdf_to_corpus_graph
-from nextsearch.llm.types import LLMMessage, LLMResponse
+from nextsearch.llm.types import EmbeddingResponse, LLMMessage, LLMResponse
 from tests.pdf_fixture import build_text_pdf
 
 
@@ -66,9 +66,16 @@ class FailingLLM:
 
 
 class FakeDedupeLLM:
-    def __init__(self, outputs: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        outputs: list[dict[str, Any]],
+        *,
+        embeddings: list[list[list[float]]] | None = None,
+    ) -> None:
         self.outputs = list(outputs)
+        self.embeddings = list(embeddings or [])
         self.calls: list[dict[str, Any]] = []
+        self.embed_calls: list[dict[str, Any]] = []
 
     def generate_json(
         self,
@@ -89,6 +96,29 @@ class FakeDedupeLLM:
             }
         )
         return response_model.model_validate(self.outputs.pop(0))
+
+    def embed(
+        self,
+        *,
+        role: str,
+        texts: list[str],
+    ) -> EmbeddingResponse:
+        self.embed_calls.append({"role": role, "texts": texts})
+        if self.embeddings:
+            embeddings = self.embeddings.pop(0)
+        else:
+            embeddings = [
+                [
+                    1.0 if column == row else 0.0
+                    for column in range(len(texts))
+                ]
+                for row in range(len(texts))
+            ]
+        return EmbeddingResponse(
+            embeddings=embeddings,
+            provider="fake",
+            model="fake-embedding",
+        )
 
 
 class KnowledgeGraphMergeTests(unittest.TestCase):

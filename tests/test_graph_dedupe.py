@@ -4,8 +4,15 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from nextsearch.ingestion.artifacts import write_graph_merge_decisions_artifact
-from nextsearch.ingestion.graph.dedupe import dedupe_knowledge_graph
+from nextsearch.ingestion.artifacts import (
+    write_graph_artifact,
+    write_graph_merge_decisions_artifact,
+    write_relation_type_proposals_artifact,
+)
+from nextsearch.ingestion.graph.dedupe import (
+    dedupe_knowledge_graph,
+    dedupe_knowledge_graph_incremental,
+)
 from nextsearch.ingestion.graph.llm_extractor import normalize_edge_id, normalize_node_id
 from nextsearch.ingestion.graph.models import (
     GraphEdge,
@@ -15,13 +22,21 @@ from nextsearch.ingestion.graph.models import (
     KnowledgeGraph,
     SourceRef,
 )
-from nextsearch.llm.types import LLMMessage
+from nextsearch.ingestion.graph.relation_proposals import build_relation_type_proposals
+from nextsearch.llm.types import EmbeddingResponse, LLMMessage
 
 
 class FakeDedupeLLM:
-    def __init__(self, outputs: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        outputs: list[dict[str, Any]],
+        *,
+        embeddings: list[list[list[float]]] | None = None,
+    ) -> None:
         self.outputs = list(outputs)
+        self.embeddings = list(embeddings or [])
         self.calls: list[dict[str, Any]] = []
+        self.embed_calls: list[dict[str, Any]] = []
 
     def generate_json(
         self,
@@ -42,6 +57,55 @@ class FakeDedupeLLM:
             }
         )
         return response_model.model_validate(self.outputs.pop(0))
+
+    def embed(
+        self,
+        *,
+        role: str,
+        texts: list[str],
+    ) -> EmbeddingResponse:
+        self.embed_calls.append({"role": role, "texts": texts})
+        if self.embeddings:
+            embeddings = self.embeddings.pop(0)
+        else:
+            embeddings = [
+                [
+                    1.0 if column == row else 0.0
+                    for column in range(len(texts))
+                ]
+                for row in range(len(texts))
+            ]
+        return EmbeddingResponse(
+            embeddings=embeddings,
+            provider="fake",
+            model="fake-embedding",
+        )
+
+
+class FakeRelationProposalLLM:
+    def __init__(self, output: dict[str, Any]) -> None:
+        self.output = output
+        self.calls: list[dict[str, Any]] = []
+
+    def generate_json(
+        self,
+        *,
+        role: str,
+        messages: list[LLMMessage],
+        response_model: type[Any],
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
+    ) -> Any:
+        self.calls.append(
+            {
+                "role": role,
+                "messages": messages,
+                "response_model": response_model,
+                "temperature": temperature,
+                "max_output_tokens": max_output_tokens,
+            }
+        )
+        return response_model.model_validate(self.output)
 
 
 class KnowledgeGraphDedupeTests(unittest.TestCase):
@@ -161,6 +225,50 @@ class KnowledgeGraphDedupeTests(unittest.TestCase):
         self.assertEqual(len(result.graph.nodes), 1)
         self.assertEqual(result.graph.edges, [])
 
+    def test_semantic_candidate_sends_similar_nodes_to_llm(self) -> None:
+        platform = _node("system", "Atlas storage platform", "Atlas stores regulated files.")
+        vault = _node("system", "Data vault service", "The data vault stores regulated files.")
+        graph = _graph(nodes=[platform, vault], edges=[])
+        llm = FakeDedupeLLM(
+            [{"decision": "same", "confidence": 0.95, "reason": "Same system."}],
+            embeddings=[[[1.0, 0.0], [0.96, 0.1]]],
+        )
+
+        result = dedupe_knowledge_graph(graph, llm)  # type: ignore[arg-type]
+
+        self.assertEqual(len(llm.calls), 1)
+        self.assertIn("semantic_similarity", llm.calls[0]["messages"][1].content)
+        self.assertEqual(len(result.graph.nodes), 1)
+
+    def test_semantic_dedupe_never_compares_different_node_types(self) -> None:
+        system = _node("system", "Atlas", "Atlas is the system.")
+        concept = _node("concept", "Data vault", "Data vault is the concept.")
+        graph = _graph(nodes=[system, concept], edges=[])
+        llm = FakeDedupeLLM([])
+
+        dedupe_knowledge_graph(graph, llm)  # type: ignore[arg-type]
+
+        self.assertEqual(llm.embed_calls, [])
+        self.assertEqual(llm.calls, [])
+
+    def test_incremental_semantic_dedupe_skips_old_to_old_candidates(self) -> None:
+        old_system = _node("system", "Atlas storage platform", "Atlas stores files.")
+        old_vault = _node("system", "Data vault service", "The data vault stores files.")
+        incoming = _node("system", "Billing engine", "Billing engine calculates invoices.")
+        graph = _graph(nodes=[old_system, old_vault, incoming], edges=[])
+        llm = FakeDedupeLLM(
+            [],
+            embeddings=[[[1.0, 0.0], [0.96, 0.1], [0.0, 1.0]]],
+        )
+
+        dedupe_knowledge_graph_incremental(
+            graph,
+            llm,  # type: ignore[arg-type]
+            incoming_node_ids={incoming.id},
+        )
+
+        self.assertEqual(llm.calls, [])
+
     def test_write_graph_merge_decisions_artifact(self) -> None:
         graph = _graph(nodes=[], edges=[])
         result = GraphDedupeResult(
@@ -190,6 +298,74 @@ class KnowledgeGraphDedupeTests(unittest.TestCase):
             {"organization:vendor-a": "organization:vendor-a-ltd"},
         )
         self.assertEqual(payload["merge_decisions"][0]["decision"], "same")
+
+    def test_relation_type_proposal_artifact_keeps_graph_canonical(self) -> None:
+        product = _node("product", "Platform A", "Platform A is certified.")
+        certifier = _node("organization", "CertCo", "CertCo certifies products.")
+        edge = _edge(
+            product.id,
+            "related_to",
+            certifier.id,
+            "Platform A is certified by CertCo.",
+            0.9,
+        ).model_copy(
+            update={
+                "raw_relation": "is certified by",
+                "source_refs": [
+                    _source_ref("Platform A is certified by CertCo."),
+                    _source_ref_for_document("doc-2", "CertCo certified Platform A."),
+                    _source_ref_for_document("doc-2", "The certification is active."),
+                ],
+            }
+        )
+        graph = _graph(nodes=[product, certifier], edges=[edge])
+        llm = FakeRelationProposalLLM(
+            {
+                "proposals": [
+                    {
+                        "proposed_relation_type": "certified_by",
+                        "closest_existing_relation_type": "related_to",
+                        "raw_relations": ["hallucinated wording"],
+                        "source_node_types": ["concept"],
+                        "target_node_types": ["concept"],
+                        "supporting_edge_ids": [edge.id],
+                        "evidence_count": 1,
+                        "document_count": 1,
+                        "confidence": 0.91,
+                        "status": "proposed",
+                        "promotion_ready": False,
+                        "rationale": "Recurring certification relation.",
+                    }
+                ]
+            }
+        )
+
+        proposals = build_relation_type_proposals(graph, llm)  # type: ignore[arg-type]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            write_graph_artifact(graph, output_dir)
+            write_relation_type_proposals_artifact(proposals, output_dir)
+            graph_payload = json.loads(
+                (output_dir / "graph.json").read_text(encoding="utf-8")
+            )
+            proposal_payload = json.loads(
+                (output_dir / "relation_type_proposals.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(graph_payload["edges"][0]["relation_type"], "related_to")
+        self.assertNotIn("proposed_relation_type", graph_payload["edges"][0])
+        self.assertEqual(
+            proposal_payload["proposals"][0]["proposed_relation_type"],
+            "certified_by",
+        )
+        self.assertEqual(
+            proposal_payload["proposals"][0]["raw_relations"],
+            ["is certified by"],
+        )
+        self.assertEqual(proposal_payload["proposals"][0]["evidence_count"], 3)
+        self.assertEqual(proposal_payload["proposals"][0]["document_count"], 2)
+        self.assertTrue(proposal_payload["proposals"][0]["promotion_ready"])
 
 
 def _graph(nodes: list[GraphNode], edges: list[GraphEdge]) -> KnowledgeGraph:
@@ -231,8 +407,12 @@ def _edge(
 
 
 def _source_ref(quote: str) -> SourceRef:
+    return _source_ref_for_document("doc-1", quote)
+
+
+def _source_ref_for_document(document_id: str, quote: str) -> SourceRef:
     return SourceRef(
-        document_id="doc-1",
+        document_id=document_id,
         section_id="section-0001",
         heading="Overview",
         quote=quote,

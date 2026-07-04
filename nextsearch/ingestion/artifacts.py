@@ -4,7 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from nextsearch.ingestion.graph.models import GraphDedupeResult, KnowledgeGraph
+from nextsearch.ingestion.graph.models import (
+    GraphDedupeResult,
+    KnowledgeGraph,
+    RelationTypeProposalSet,
+)
 from nextsearch.ingestion.models import MarkdownDocument
 
 
@@ -50,6 +54,17 @@ def write_graph_merge_decisions_artifact(
     }
     (output_dir / "graph_merge_decisions.json").write_text(
         json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_relation_type_proposals_artifact(
+    proposals: RelationTypeProposalSet,
+    output_dir: Path,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "relation_type_proposals.json").write_text(
+        json.dumps(proposals.model_dump(mode="json"), indent=2) + "\n",
         encoding="utf-8",
     )
 

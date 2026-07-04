@@ -25,6 +25,8 @@ from nextsearch.llm.types import LLMMessage
 
 MERGE_CONFIDENCE_THRESHOLD = 0.9
 TOKEN_SIMILARITY_THRESHOLD = 0.88
+SEMANTIC_SIMILARITY_THRESHOLD = 0.88
+MAX_SEMANTIC_MATCHES_PER_NODE = 5
 MAX_SOURCE_QUOTES = 4
 MAX_QUOTE_CHARS = 260
 MAX_EDGE_SUMMARIES = 8
@@ -114,6 +116,7 @@ def _dedupe_knowledge_graph(
     node_by_id = {node.id: node for node in graph.nodes}
     candidates = _generate_merge_candidates(
         graph,
+        llm=llm,
         required_node_ids=required_node_ids,
     )
     union_find = _UnionFind(list(node_by_id))
@@ -171,6 +174,7 @@ def _dedupe_knowledge_graph(
 def _generate_merge_candidates(
     graph: KnowledgeGraph,
     *,
+    llm: LLMService,
     required_node_ids: set[str] | None = None,
 ) -> list[_MergeCandidate]:
     nodes_by_type: dict[str, list[GraphNode]] = defaultdict(list)
@@ -178,7 +182,7 @@ def _generate_merge_candidates(
         nodes_by_type[node.type].append(node)
 
     neighbor_ids = _neighbor_ids_by_node(graph.edges)
-    candidates: list[_MergeCandidate] = []
+    candidate_reasons: dict[tuple[str, str], set[str]] = defaultdict(set)
     for typed_nodes in nodes_by_type.values():
         for left, right in combinations(typed_nodes, 2):
             if (
@@ -189,18 +193,89 @@ def _generate_merge_candidates(
                 continue
             reasons = _candidate_reasons(left, right, neighbor_ids)
             if reasons:
-                candidates.append(
-                    _MergeCandidate(
-                        source_node_id=left.id,
-                        target_node_id=right.id,
-                        reasons=tuple(sorted(reasons)),
-                    )
-                )
+                candidate_reasons[_candidate_key(left.id, right.id)].update(reasons)
+
+        for left_id, right_id in _semantic_candidate_pairs(
+            typed_nodes,
+            llm=llm,
+            required_node_ids=required_node_ids,
+        ):
+            candidate_reasons[_candidate_key(left_id, right_id)].add(
+                "semantic_similarity"
+            )
 
     return sorted(
-        candidates,
+        [
+            _MergeCandidate(
+                source_node_id=left_id,
+                target_node_id=right_id,
+                reasons=tuple(sorted(reasons)),
+            )
+            for (left_id, right_id), reasons in candidate_reasons.items()
+        ],
         key=lambda candidate: (candidate.source_node_id, candidate.target_node_id),
     )
+
+
+def _semantic_candidate_pairs(
+    typed_nodes: list[GraphNode],
+    *,
+    llm: LLMService,
+    required_node_ids: set[str] | None,
+) -> set[tuple[str, str]]:
+    if len(typed_nodes) < 2:
+        return set()
+
+    try:
+        embeddings = llm.embed(
+            role="document_embedding",
+            texts=[_node_embedding_text(node) for node in typed_nodes],
+        ).embeddings
+    except Exception as exc:
+        raise GraphDedupeError("Graph semantic dedupe embedding failed") from exc
+
+    if len(embeddings) != len(typed_nodes):
+        raise GraphDedupeError("Graph semantic dedupe returned wrong embedding count")
+
+    matches_by_node_id: dict[str, list[tuple[float, str]]] = defaultdict(list)
+    for left_index, right_index in combinations(range(len(typed_nodes)), 2):
+        left = typed_nodes[left_index]
+        right = typed_nodes[right_index]
+        if (
+            required_node_ids is not None
+            and left.id not in required_node_ids
+            and right.id not in required_node_ids
+        ):
+            continue
+
+        similarity = _cosine_similarity(
+            embeddings[left_index],
+            embeddings[right_index],
+        )
+        if similarity < SEMANTIC_SIMILARITY_THRESHOLD:
+            continue
+
+        matches_by_node_id[left.id].append((similarity, right.id))
+        matches_by_node_id[right.id].append((similarity, left.id))
+
+    top_matches_by_node_id: dict[str, set[str]] = {}
+    for node_id, matches in matches_by_node_id.items():
+        top_matches_by_node_id[node_id] = {
+            other_node_id
+            for _similarity, other_node_id in sorted(
+                matches,
+                key=lambda match: (-match[0], match[1]),
+            )[:MAX_SEMANTIC_MATCHES_PER_NODE]
+        }
+
+    pairs: set[tuple[str, str]] = set()
+    for node_id, other_node_ids in top_matches_by_node_id.items():
+        for other_node_id in other_node_ids:
+            if node_id not in top_matches_by_node_id.get(other_node_id, set()):
+                continue
+            pairs.add(_candidate_key(node_id, other_node_id))
+
+    return pairs
 
 
 def _candidate_reasons(
@@ -621,6 +696,38 @@ def _token_similarity(left: str, right: str) -> float:
             " ".join(sorted(right_text.split())),
         ).ratio(),
     )
+
+
+def _node_embedding_text(node: GraphNode) -> str:
+    aliases = ", ".join(node.aliases) if node.aliases else "none"
+    description = node.description or "none"
+    quotes = "\n".join(_source_quote_lines(node.source_refs)) or "- none"
+    return (
+        f"type: {node.type}\n"
+        f"name: {node.name}\n"
+        f"aliases: {aliases}\n"
+        f"description: {description}\n"
+        f"source quotes:\n{quotes}"
+    )
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right) or not left:
+        return 0.0
+
+    left_norm = sum(value * value for value in left) ** 0.5
+    right_norm = sum(value * value for value in right) ** 0.5
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+
+    return sum(
+        left_value * right_value
+        for left_value, right_value in zip(left, right, strict=True)
+    ) / (left_norm * right_norm)
+
+
+def _candidate_key(left_id: str, right_id: str) -> tuple[str, str]:
+    return (left_id, right_id) if left_id < right_id else (right_id, left_id)
 
 
 def _has_name_overlap(left: GraphNode, right: GraphNode) -> bool:

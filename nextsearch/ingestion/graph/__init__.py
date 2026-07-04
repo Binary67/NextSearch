@@ -18,7 +18,12 @@ from nextsearch.ingestion.graph.models import (
     GraphNode,
     GraphNodeMergeDecision,
     KnowledgeGraph,
+    RelationTypeProposal,
+    RelationTypeProposalSet,
     SourceRef,
+)
+from nextsearch.ingestion.graph.relation_proposals import (
+    build_relation_type_proposals,
 )
 
 __all__ = [
@@ -27,8 +32,11 @@ __all__ = [
     "GraphNode",
     "GraphNodeMergeDecision",
     "KnowledgeGraph",
+    "RelationTypeProposal",
+    "RelationTypeProposalSet",
     "SourceRef",
     "ExtractedSourceRef",
+    "build_relation_type_proposals",
     "dedupe_knowledge_graph",
     "dedupe_knowledge_graph_incremental",
     "extract_knowledge_graph_from_markdown",

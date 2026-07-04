@@ -209,16 +209,21 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
             )
 
             graph_path = output_dir / "graph.json"
+            proposal_path = output_dir / "relation_type_proposals.json"
             payload = json.loads(graph_path.read_text(encoding="utf-8"))
+            proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
 
             self.assertEqual(graph.schema_version, 1)
             self.assertTrue(graph_path.exists())
+            self.assertTrue(proposal_path.exists())
             self.assertEqual(payload["schema_version"], 1)
             self.assertEqual(payload["document_id"], "doc-1")
             self.assertEqual(payload["source_path"], str(pdf_path))
             self.assertEqual(payload["content_hash"], graph.content_hash)
             self.assertIn("nodes", payload)
             self.assertIn("edges", payload)
+            self.assertEqual(proposal_payload["document_id"], "doc-1")
+            self.assertEqual(proposal_payload["proposals"], [])
             self.assertEqual(llm.graph_calls, 1)
 
 
