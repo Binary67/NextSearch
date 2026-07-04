@@ -1,0 +1,16 @@
+[llm]
+default_provider = "azure_primary"
+
+[llm.roles]
+summarization = "azure_primary"
+query_planning = "azure_primary"
+graph_extraction = "azure_primary"
+answer_generation = "azure_primary"
+document_embedding = "azure_primary"
+
+[llm.providers.azure_primary]
+provider = "azure_openai_v1"
+base_url_env = "AZURE_OPENAI_BASE_URL"
+api_key_env = "AZURE_OPENAI_API_KEY"
+text_model = "nextsearch-chat"
+embedding_model = "nextsearch-embed"

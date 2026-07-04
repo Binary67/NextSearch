@@ -1,0 +1,1 @@
+"""NextSearch package."""
