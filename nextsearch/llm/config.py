@@ -13,10 +13,10 @@ from nextsearch.llm.types import LLMConfigError
 ModelTier = Literal["fast", "flagship"]
 
 
-class AzureOpenAIV1Config(BaseModel):
+class AzureOpenAIConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["azure_openai_v1"]
+    provider: Literal["azure_openai"]
     base_url_env: str
     api_key_env: str
     embedding_model: str
@@ -33,7 +33,7 @@ class LLMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     default_provider: str
-    providers: dict[str, AzureOpenAIV1Config]
+    providers: dict[str, AzureOpenAIConfig]
     models: ModelConfig
     tasks: dict[str, ModelTier] = Field(default_factory=dict)
 
@@ -48,7 +48,7 @@ class LLMConfig(BaseModel):
     def provider_config(
         self,
         provider_name: str | None = None,
-    ) -> AzureOpenAIV1Config:
+    ) -> AzureOpenAIConfig:
         name = provider_name or self.default_provider
         try:
             return self.providers[name]

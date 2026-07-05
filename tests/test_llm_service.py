@@ -50,7 +50,7 @@ def config() -> LLMConfig:
             "default_provider": "azure",
             "providers": {
                 "azure": {
-                    "provider": "azure_openai_v1",
+                    "provider": "azure_openai",
                     "base_url_env": "AZURE_OPENAI_BASE_URL",
                     "api_key_env": "AZURE_OPENAI_API_KEY",
                     "embedding_model": "nextsearch-embed",

@@ -353,7 +353,7 @@ uv run python -m unittest tests.test_ingestion_sections
 uv run python -m unittest tests.test_ingestion_graph
 uv run python -m unittest tests.test_llm_config
 uv run python -m unittest tests.test_llm_service
-uv run python -m unittest tests.test_azure_openai_v1
+uv run python -m unittest tests.test_azure_openai
 uv run python -m unittest tests.test_graph_dedupe
 uv run python -m unittest tests.test_graph_merge
 uv run python -m unittest tests.test_retrieval

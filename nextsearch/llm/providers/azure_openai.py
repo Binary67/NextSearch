@@ -18,7 +18,7 @@ from nextsearch.llm.types import (
 )
 
 
-class AzureOpenAIV1Provider:
+class AzureOpenAIProvider:
     def __init__(
         self,
         *,

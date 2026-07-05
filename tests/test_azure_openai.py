@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from nextsearch.llm.providers.azure_openai_v1 import AzureOpenAIV1Provider
+from nextsearch.llm.providers.azure_openai import AzureOpenAIProvider
 from nextsearch.llm.types import (
     EmbeddingRequest,
     LLMMessage,
@@ -49,7 +49,7 @@ class FakeClient:
         self.embeddings = FakeEmbeddings()
 
 
-class AzureOpenAIV1ProviderTests(unittest.TestCase):
+class AzureOpenAIProviderTests(unittest.TestCase):
     def test_client_factory_receives_base_url_and_api_key(self) -> None:
         calls: list[dict[str, str]] = []
 
@@ -57,7 +57,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
             calls.append(kwargs)
             return FakeClient()
 
-        AzureOpenAIV1Provider(
+        AzureOpenAIProvider(
             name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",
@@ -76,7 +76,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
 
     def test_generate_text_uses_responses_create_with_text_model(self) -> None:
         client = FakeClient()
-        provider = AzureOpenAIV1Provider(
+        provider = AzureOpenAIProvider(
             name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",
@@ -100,7 +100,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
 
     def test_generate_json_uses_responses_parse_with_pydantic_model(self) -> None:
         client = FakeClient()
-        provider = AzureOpenAIV1Provider(
+        provider = AzureOpenAIProvider(
             name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",
@@ -122,7 +122,7 @@ class AzureOpenAIV1ProviderTests(unittest.TestCase):
 
     def test_embed_uses_embeddings_create_with_embedding_model(self) -> None:
         client = FakeClient()
-        provider = AzureOpenAIV1Provider(
+        provider = AzureOpenAIProvider(
             name="azure",
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key="secret",

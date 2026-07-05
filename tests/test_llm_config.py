@@ -12,7 +12,7 @@ VALID_CONFIG = """
 default_provider = "azure"
 
 [llm.providers.azure]
-provider = "azure_openai_v1"
+provider = "azure_openai"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
 embedding_model = "nextsearch-embed"
@@ -30,7 +30,7 @@ EXTRACTION_CONFIG = """
 default_provider = "azure"
 
 [llm.providers.azure]
-provider = "azure_openai_v1"
+provider = "azure_openai"
 base_url_env = "AZURE_OPENAI_BASE_URL"
 api_key_env = "AZURE_OPENAI_API_KEY"
 embedding_model = "nextsearch-embed"
@@ -85,7 +85,7 @@ class LLMConfigTests(unittest.TestCase):
                 "default_provider": "azure",
                 "providers": {
                     "azure": {
-                        "provider": "azure_openai_v1",
+                        "provider": "azure_openai",
                         "base_url_env": "AZURE_OPENAI_BASE_URL",
                         "api_key_env": "AZURE_OPENAI_API_KEY",
                         "embedding_model": "nextsearch-embed",
@@ -116,7 +116,7 @@ class LLMConfigTests(unittest.TestCase):
 
     def test_unsupported_provider_type_fails_validation(self) -> None:
         config = VALID_CONFIG.replace(
-            'provider = "azure_openai_v1"',
+            'provider = "azure_openai"',
             'provider = "unsupported_provider"',
         )
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -132,7 +132,7 @@ class LLMConfigTests(unittest.TestCase):
                 "default_provider": "azure",
                 "providers": {
                     "azure": {
-                        "provider": "azure_openai_v1",
+                        "provider": "azure_openai",
                         "base_url_env": "AZURE_OPENAI_BASE_URL",
                         "api_key_env": "AZURE_OPENAI_API_KEY",
                         "embedding_model": "nextsearch-embed",
