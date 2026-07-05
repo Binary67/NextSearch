@@ -93,6 +93,38 @@ class RetrievalTests(unittest.TestCase):
                 embedding_model="fake-embedding",
             )
 
+    def test_graph_search_rejects_embedding_count_mismatch(self) -> None:
+        graph = _graph()
+
+        with self.assertRaises(GraphEmbeddingIndexError):
+            search_graph(
+                graph,
+                search_terms=["Atlas", "Atlas"],
+                query_embeddings=[_vector("project:project-atlas")],
+                graph_embeddings=_embedding_index(graph),
+                embedding_provider="fake",
+                embedding_model="fake-embedding",
+            )
+
+    def test_graph_search_preserves_duplicate_terms_when_embeddings_match(self) -> None:
+        graph = _graph()
+
+        result = search_graph(
+            graph,
+            search_terms=["Atlas", "Atlas"],
+            query_embeddings=[
+                _vector("project:project-atlas"),
+                _vector("project:project-atlas"),
+            ],
+            graph_embeddings=_embedding_index(graph),
+            embedding_provider="fake",
+            embedding_model="fake-embedding",
+            relation_types=["has_risk"],
+        )
+
+        self.assertEqual(result.search_terms, ("Atlas", "Atlas"))
+        self.assertIn("project:project-atlas", {node.id for node in result.nodes})
+
     def test_graph_search_matches_nodes_and_expands_related_edges(self) -> None:
         graph = _graph()
         result = search_graph(

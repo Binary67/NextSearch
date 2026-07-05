@@ -156,6 +156,18 @@ class KnowledgeGraphMergeTests(unittest.TestCase):
             ["doc-1", "doc-2"],
         )
 
+    def test_merge_keeps_cross_document_risky_symbol_names_separate(self) -> None:
+        cpp = _node("doc-1", "concept", "C++", "C++ is mentioned.")
+        csharp = _node("doc-2", "concept", "C#", "C# is mentioned.")
+        existing = _graph(nodes=[cpp], edges=[])
+        incoming = _graph(document_id="doc-2", nodes=[csharp], edges=[])
+
+        merged = merge_knowledge_graphs(existing, incoming)
+
+        self.assertEqual(len(merged.nodes), 2)
+        self.assertEqual({node.name for node in merged.nodes}, {"C++", "C#"})
+        self.assertEqual(len({node.id for node in merged.nodes}), 2)
+
     def test_exact_edge_merge_keeps_max_confidence_and_refs(self) -> None:
         project = _node("doc-1", "project", "Project Atlas", "Atlas uses Vendor A.")
         vendor = _node("doc-1", "organization", "Vendor A", "Vendor A hosts Atlas.")

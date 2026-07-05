@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 
 from nextsearch.ingestion.errors import GraphExtractionError
@@ -19,6 +20,10 @@ from nextsearch.ingestion.graph.prompts import build_graph_extraction_messages
 from nextsearch.ingestion.markdown.sections import split_markdown_into_sections
 from nextsearch.ingestion.models import DocumentSection, MarkdownDocument
 from nextsearch.llm.service import LLMService
+
+
+_RISKY_NODE_ID_SYMBOL_RE = re.compile(r"[+#/\\&@%]")
+_TRAILING_SENTENCE_PUNCTUATION = ".,;:!?"
 
 
 def extract_knowledge_graph_from_markdown(
@@ -240,7 +245,10 @@ def _merge_source_refs(
 
 
 def normalize_node_id(node_type: str, name: str) -> str:
-    return f"{node_type}:{_slugify(name)}"
+    slug = _slugify(name)
+    if _has_risky_node_id_symbol(name):
+        return f"{node_type}:{slug}-{_node_id_hash(node_type, name)}"
+    return f"{node_type}:{slug}"
 
 
 def normalize_edge_id(
@@ -254,6 +262,22 @@ def normalize_edge_id(
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "unknown"
+
+
+def _has_risky_node_id_symbol(value: str) -> bool:
+    return _RISKY_NODE_ID_SYMBOL_RE.search(value) is not None
+
+
+def _node_id_hash(node_type: str, name: str) -> str:
+    canonical_name = _canonicalize_node_name_for_id_hash(name)
+    payload = f"{node_type}:{canonical_name}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
+
+def _canonicalize_node_name_for_id_hash(name: str) -> str:
+    canonical = " ".join(name.casefold().strip().split())
+    canonical = canonical.rstrip(_TRAILING_SENTENCE_PUNCTUATION).strip()
+    return canonical
 
 
 def _clean_optional_text(value: str | None) -> str | None:

@@ -6,6 +6,7 @@ from typing import Any
 
 from nextsearch.ingestion.graph.llm_extractor import (
     extract_knowledge_graph_from_markdown,
+    normalize_node_id,
 )
 from nextsearch.ingestion.graph.models import (
     ExtractedEdge,
@@ -98,6 +99,35 @@ class FakePDFGraphLLM:
 
 
 class KnowledgeGraphExtractionTests(unittest.TestCase):
+    def test_normalize_node_id_keeps_risky_symbol_names_distinct(self) -> None:
+        c_id = normalize_node_id("concept", "C")
+        cpp_id = normalize_node_id("concept", "C++")
+        csharp_id = normalize_node_id("concept", "C#")
+
+        self.assertEqual(c_id, "concept:c")
+        self.assertRegex(cpp_id, r"^concept:c-[0-9a-f]{8}$")
+        self.assertRegex(csharp_id, r"^concept:c-[0-9a-f]{8}$")
+        self.assertEqual(len({c_id, cpp_id, csharp_id}), 3)
+        self.assertEqual(normalize_node_id("concept", "C++."), cpp_id)
+        self.assertEqual(normalize_node_id("concept", "c#"), csharp_id)
+
+    def test_normalize_node_id_preserves_normal_name_behavior(self) -> None:
+        vendor_id = normalize_node_id("organization", "Vendor A")
+
+        self.assertEqual(vendor_id, "organization:vendor-a")
+        self.assertEqual(
+            normalize_node_id("organization", "Vendor A."),
+            vendor_id,
+        )
+        self.assertEqual(
+            normalize_node_id("organization", "vendor   a"),
+            vendor_id,
+        )
+        self.assertEqual(
+            normalize_node_id("organization", "Vendor A Ltd."),
+            "organization:vendor-a-ltd",
+        )
+
     def test_extract_graph_uses_graph_role_and_dedupes_identical_edges(self) -> None:
         document = _document(
             "<!-- page: 1 -->\n"
@@ -211,6 +241,38 @@ class KnowledgeGraphExtractionTests(unittest.TestCase):
         self.assertIn("organization:vendor-a", {node.id for node in graph.nodes})
         self.assertIn("organization:vendor-a-ltd", {node.id for node in graph.nodes})
         self.assertEqual(len(graph.edges), 2)
+
+    def test_extract_graph_keeps_risky_symbol_node_names_separate(self) -> None:
+        document = _document(
+            "<!-- page: 1 -->\n"
+            "# Languages\n"
+            "C, C++, and C# are mentioned as separate languages.\n"
+        )
+        llm = FakeGraphLLM(
+            [
+                SectionGraphExtraction(
+                    nodes=[
+                        _node("concept", "C", "C is mentioned."),
+                        _node("concept", "C++", "C++ is mentioned."),
+                        _node("concept", "C#", "C# is mentioned."),
+                    ],
+                    edges=[],
+                )
+            ]
+        )
+
+        graph = extract_knowledge_graph_from_markdown(
+            document,
+            llm,  # type: ignore[arg-type]
+            document_id="doc-1",
+            content_hash="hash-1",
+        )
+
+        node_ids = {node.id for node in graph.nodes}
+        self.assertEqual(len(graph.nodes), 3)
+        self.assertIn("concept:c", node_ids)
+        self.assertIn(normalize_node_id("concept", "C++"), node_ids)
+        self.assertIn(normalize_node_id("concept", "C#"), node_ids)
 
     def test_extract_pdf_to_knowledge_graph_writes_graph_artifact(self) -> None:
         llm = FakePDFGraphLLM()

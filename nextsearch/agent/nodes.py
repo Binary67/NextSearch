@@ -42,7 +42,7 @@ class QueryAgentNodes:
             response_model=QueryPlan,
             temperature=0,
         )
-        search_terms = plan.search_terms or [request.query]
+        search_terms = _prepare_search_terms(plan.search_terms, request.query)
         return {
             "plan": plan,
             "search_terms": search_terms,
@@ -53,7 +53,10 @@ class QueryAgentNodes:
 
     def search_graph(self, state: QueryAgentState) -> dict[str, object]:
         graph = self.graph_store.load_graph()
-        search_terms = _dedupe_search_terms(state.get("search_terms") or [state["query"]])
+        search_terms = _prepare_search_terms(
+            state.get("search_terms", []),
+            state["query"],
+        )
         query_embeddings = self.llm.embed(
             role="graph_query_embedding",
             texts=search_terms,
@@ -221,7 +224,7 @@ def _dedupe_citations(citations: Iterable[Citation]) -> list[Citation]:
     return result
 
 
-def _dedupe_search_terms(search_terms: Sequence[str]) -> list[str]:
+def _prepare_search_terms(search_terms: Sequence[str], fallback_query: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for term in search_terms:
@@ -231,4 +234,6 @@ def _dedupe_search_terms(search_terms: Sequence[str]) -> list[str]:
             continue
         seen.add(key)
         result.append(value)
-    return result
+    if result:
+        return result
+    return [fallback_query.strip() or fallback_query]

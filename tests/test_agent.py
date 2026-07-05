@@ -27,9 +27,14 @@ class FakeAgentLLM:
         self,
         *,
         decisions: list[GraphSearchDecision] | None = None,
+        plan: QueryPlan | None = None,
         answer: AnswerDraft | None = None,
     ) -> None:
         self.decisions = list(decisions or [])
+        self.plan = plan or QueryPlan(
+            search_terms=["Project Atlas"],
+            relation_types=["has_risk"],
+        )
         self.answer = answer or AnswerDraft(
             answer="Project Atlas has a data residency risk.",
             cited_evidence_ids=[1],
@@ -56,7 +61,7 @@ class FakeAgentLLM:
             }
         )
         if response_model is QueryPlan:
-            return QueryPlan(search_terms=["Project Atlas"], relation_types=["has_risk"])
+            return self.plan
         if response_model is GraphSearchDecision:
             return self.decisions.pop(0)
         if response_model is AnswerDraft:
@@ -128,6 +133,56 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["citations"][0].document_id, "doc-1")
         self.assertEqual(graph_store.calls, 1)
         self.assertEqual(llm.embed_calls[0]["role"], "graph_query_embedding")
+        self.assertEqual(llm.embed_calls[0]["texts"], ["Project Atlas"])
+
+    def test_agent_dedupes_planned_terms_before_embedding(self) -> None:
+        llm = FakeAgentLLM(
+            plan=QueryPlan(
+                search_terms=["Project Atlas", " Project Atlas ", ""],
+                relation_types=["has_risk"],
+            ),
+            decisions=[
+                GraphSearchDecision(next_step="answer", reason="Enough evidence.")
+            ],
+        )
+        graph_store = CountingGraphStore(_graph())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_document_artifacts(root)
+            agent = build_query_agent(
+                llm=llm,  # type: ignore[arg-type]
+                graph_store=graph_store,
+                source_store=MarkdownArtifactSourceStore(root),
+            )
+
+            agent.invoke({"query": "What risks are related to Project Atlas?"})
+
+        self.assertEqual(llm.embed_calls[0]["texts"], ["Project Atlas"])
+
+    def test_agent_falls_back_to_query_when_planned_terms_are_blank(self) -> None:
+        llm = FakeAgentLLM(
+            plan=QueryPlan(
+                search_terms=[" ", "\t"],
+                relation_types=["has_risk"],
+            ),
+            decisions=[
+                GraphSearchDecision(next_step="answer", reason="Enough evidence.")
+            ],
+        )
+        graph_store = CountingGraphStore(_graph())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_document_artifacts(root)
+            agent = build_query_agent(
+                llm=llm,  # type: ignore[arg-type]
+                graph_store=graph_store,
+                source_store=MarkdownArtifactSourceStore(root),
+            )
+
+            agent.invoke({"query": "Project Atlas"})
+
         self.assertEqual(llm.embed_calls[0]["texts"], ["Project Atlas"])
 
     def test_agent_loops_when_decision_requests_more_graph_search(self) -> None:

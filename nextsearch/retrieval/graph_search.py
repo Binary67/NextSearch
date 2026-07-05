@@ -32,7 +32,7 @@ def search_graph(
     max_nodes: int = 8,
     max_edges: int = 16,
 ) -> GraphSearchResult:
-    terms = tuple(_dedupe(term.strip() for term in search_terms if term.strip()))
+    terms = tuple(search_terms)
     if len(query_embeddings) != len(terms):
         raise GraphEmbeddingIndexError(
             "Graph query embedding count does not match search term count"
@@ -260,15 +260,3 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
         left_value * right_value
         for left_value, right_value in zip(left, right, strict=True)
     ) / (left_norm * right_norm)
-
-
-def _dedupe(values: Sequence[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        key = _normalize(value)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(value)
-    return result
